@@ -11,10 +11,12 @@ const TerminalManager = require('./TerminalManager');
 const CustomizePicker = require('./CustomizePicker');
 const QuickActions = require('./QuickActions');
 const FileExplorer = require('./FileExplorer');
+const ImportProjectsModal = require('./ImportProjectsModal');
 
 module.exports = {
   ...Modal,
   ...Toast,
+  ...ImportProjectsModal,
   ...ContextMenu,
   ...Tab,
   ProjectList,

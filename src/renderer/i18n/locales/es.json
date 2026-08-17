@@ -103,6 +103,25 @@
     "clearTagFilter": "Eliminar filtro",
     "activeSection": "Sesiones activas",
     "listSection": "Proyectos",
+    "import": {
+      "title": "Importar proyectos",
+      "browse": "Explorar",
+      "rootPlaceholder": "Ninguna carpeta seleccionada",
+      "hint": "Elige una carpeta que contenga tus proyectos — también se analizan las subcarpetas.",
+      "scanning": "Analizando…",
+      "scanFailed": "No se pudo analizar esa carpeta.",
+      "nothingFound": "No se encontró ningún proyecto en esa carpeta.",
+      "found": "{count} proyecto(s) encontrado(s)",
+      "truncated": "Demasiados resultados — solo se muestran los primeros 500.",
+      "allImported": "Todos los proyectos encontrados ya están en tu lista.",
+      "alreadyImported": "ya importado",
+      "noGit": "sin git",
+      "selectAll": "Seleccionar todo",
+      "selectNone": "Deseleccionar todo",
+      "groupIntoFolder": "Agrupar en una carpeta",
+      "confirm": "Importar ({count})",
+      "done": "{count} proyecto(s) importado(s)"
+    },
     "manageTags": "Gestionar etiquetas"
   },
   "terminals": {

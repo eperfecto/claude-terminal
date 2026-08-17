@@ -521,6 +521,7 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== PROJECT ====================
   project: {
     scanTodos: (projectPath) => ipcRenderer.invoke('scan-todos', projectPath),
+    scanFolders: (params) => ipcRenderer.invoke('scan-project-folders', params),
     stats: (projectPath) => ipcRenderer.invoke('project-stats', projectPath),
     onQuickActionRun: createListener('quickaction:run'),
     onQuickActionChanged: createListener('quickaction:changed'),

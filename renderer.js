@@ -106,6 +106,7 @@ const {
 const registry = require('./src/project-types/registry');
 const { mergeTranslations } = require('./src/renderer/i18n');
 const ModalComponent = require('./src/renderer/ui/components/Modal');
+const { showImportProjectsModal } = require('./src/renderer/ui/components/ImportProjectsModal');
 const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel, CloudPanel, ConnectivityPanel, ControlTowerPanel, SessionReplayPanel, ParallelTaskPanel, WorkspacePanel, ErrorLogPanel } = require('./src/renderer/ui/panels');
 // Not re-exported by the panels index: ConnectivityPanel embeds it as a sub-tab,
 // but its polling lifecycle is driven from the tab registry below.
@@ -4530,6 +4531,10 @@ document.getElementById('btn-new-project').onclick = () => {
 };
 
 document.getElementById('btn-new-folder').onclick = () => promptCreateFolder(null);
+document.getElementById('btn-import-projects').onclick = () => showImportProjectsModal({
+  // Git badges live in localState here, so probing stays the caller's job.
+  onImported: (projects) => projects.forEach(checkProjectGitStatus)
+});
 document.getElementById('btn-show-all').onclick = () => {
   setSelectedProjectFilter(null);
   ProjectList.render();

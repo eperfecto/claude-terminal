@@ -3904,3 +3904,200 @@ body.compact-projects .project-item:not(.active):hover {
 .active-projects-section .project-item:active {
   cursor: pointer;
 }
+
+/* ── Bulk import modal ── */
+
+/* `.modal-large` is emitted by Modal.js but defined nowhere, so every modal is
+   500px. Widening it globally would resize eight other call sites, so the
+   override is scoped to this modal until that gap is addressed on its own. */
+#import-projects-modal .modal {
+  width: 720px;
+}
+
+.import-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.import-root-row {
+  display: flex;
+  gap: 8px;
+}
+
+.import-root-path {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.import-results {
+  min-height: 120px;
+}
+
+.import-hint,
+.import-scanning,
+.import-error,
+.import-warning {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.import-scanning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+}
+
+.import-warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+  margin-bottom: 8px;
+}
+
+.import-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.import-found {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.import-toolbar-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.import-list {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.import-item {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+
+.import-item:has(.import-check:checked) {
+  border-color: var(--accent);
+}
+
+.import-item.is-disabled {
+  opacity: 0.5;
+}
+
+.import-item-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.import-item.is-disabled .import-item-label {
+  cursor: default;
+}
+
+.import-item-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.import-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.import-item-name {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.import-item-path {
+  margin-top: 2px;
+  font-size: var(--font-2xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-badge,
+.import-stack-badge {
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: var(--font-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.import-badge-git {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.import-badge-muted {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.import-stack-badge {
+  border: 1px solid var(--stack-color, var(--border-color));
+  color: var(--stack-color, var(--text-secondary));
+}
+
+.import-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-color);
+}
+
+.import-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.import-group-name {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}
+
+.import-group-name:disabled {
+  opacity: 0.4;
+}

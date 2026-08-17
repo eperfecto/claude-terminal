@@ -619,6 +619,25 @@ function toggleFolderCollapse(folderId) {
 }
 
 /**
+ * Find a registered project by path, tolerating separator, trailing-slash and
+ * case differences.
+ *
+ * Exported so callers that need to know whether a path is already registered
+ * (the bulk importer marking scan results) ask the same question addProject
+ * answers internally, instead of reimplementing the normalization.
+ *
+ * @param {string} projectPath
+ * @returns {Object|undefined}
+ */
+function findProjectByPath(projectPath) {
+  if (!projectPath || typeof projectPath !== 'string') return undefined;
+  const normalize = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const target = normalize(projectPath.trim());
+  if (!target) return undefined;
+  return projectsState.get().projects.find(p => p.path && normalize(p.path) === target);
+}
+
+/**
  * Add a new project
  * @param {Object} projectData
  * @returns {Object|null} The created project, the existing project if path duplicates,
@@ -630,14 +649,11 @@ function addProject(projectData) {
   const rawPath = projectData.path.trim();
   if (!rawPath) return null;
 
-  const normalize = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  const normalizedNew = normalize(rawPath);
+  // Idempotent: return the existing project if the path is already registered.
+  const existing = findProjectByPath(rawPath);
+  if (existing) return existing;
 
   const state = projectsState.get();
-
-  // Idempotent: return the existing project if the path is already registered.
-  const existing = state.projects.find(p => p.path && normalize(p.path) === normalizedNew);
-  if (existing) return existing;
 
   // Derive a non-empty name from the path basename if missing or blank.
   let name = (projectData.name || '').trim();
@@ -1529,6 +1545,7 @@ module.exports = {
   setFolderIcon,
   toggleFolderCollapse,
   addProject,
+  findProjectByPath,
   updateProject,
   deleteProject,
   moveItemToFolder,
