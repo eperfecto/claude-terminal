@@ -6,11 +6,32 @@
 const { autoUpdater } = require('electron-updater');
 const { app, Notification } = require('electron');
 const https = require('https');
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const { UPDATE_REPO } = require('../utils/updateRepo');
 
 // Check interval: 30 minutes
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+
+// Set CT_DEV_UPDATER=1 to exercise the update cycle from an unpackaged checkout
+// (electron-updater then reads dev-app-update.yml instead of app-update.yml).
+const DEV_UPDATER_ENABLED = process.env.CT_DEV_UPDATER === '1';
+
+/**
+ * Numeric semver-ish comparison. A plain string compare is wrong here:
+ * '1.2.9' >= '1.2.17' is true lexicographically.
+ * @returns {number} negative if a < b, 0 if equal, positive if a > b
+ */
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
 
 class UpdaterService {
   constructor() {
@@ -42,12 +63,52 @@ class UpdaterService {
   }
 
   /**
+   * Whether electron-updater will actually do anything. Mirrors its own
+   * `isUpdaterActive()`: packaged builds, or dev runs with CT_DEV_UPDATER=1.
+   */
+  isUpdaterAvailable() {
+    return app.isPackaged || DEV_UPDATER_ENABLED;
+  }
+
+  /**
+   * Resolve the directory electron-updater caches a pending download in.
+   * Mirrors its own resolution: `getAppCacheDir()` (AppAdapter.js) joined with
+   * the `updaterCacheDirName` baked into app-update.yml, falling back to the
+   * app name. Note this is the OS *cache* dir, NOT `userData/..`.
+   */
+  getPendingCacheDir() {
+    let baseCachePath;
+    if (process.platform === 'win32') {
+      baseCachePath = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    } else if (process.platform === 'darwin') {
+      baseCachePath = path.join(os.homedir(), 'Library', 'Caches');
+    } else {
+      baseCachePath = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+    }
+
+    let dirName = null;
+    try {
+      const configPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'app-update.yml')
+        : path.join(app.getAppPath(), 'dev-app-update.yml');
+      if (fs.existsSync(configPath)) {
+        const match = fs.readFileSync(configPath, 'utf-8').match(/^updaterCacheDirName:\s*(.+)$/m);
+        if (match) dirName = match[1].trim();
+      }
+    } catch {
+      // fall through to the app-name default
+    }
+
+    return path.join(baseCachePath, dirName || `${app.getName()}-updater`, 'pending');
+  }
+
+  /**
    * Clear stale updater cache if the app version already matches or exceeds the pending update.
    * Prevents old cached downloads from blocking detection of newer versions.
    */
   clearStalePendingCache() {
     try {
-      const cacheDir = path.join(app.getPath('userData'), '..', 'claude-terminal-updater', 'pending');
+      const cacheDir = this.getPendingCacheDir();
       const infoPath = path.join(cacheDir, 'update-info.json');
 
       if (!fs.existsSync(infoPath)) return;
@@ -60,7 +121,7 @@ class UpdaterService {
       const cachedVersion = versionMatch[1];
       const currentVersion = app.getVersion();
 
-      if (currentVersion >= cachedVersion) {
+      if (compareVersions(currentVersion, cachedVersion) >= 0) {
         console.debug(`Clearing stale updater cache (cached: ${cachedVersion}, current: ${currentVersion})`);
         const files = fs.readdirSync(cacheDir);
         for (const file of files) {
@@ -81,8 +142,9 @@ class UpdaterService {
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = false;
 
-    // Force fresh update checks (don't use cached update info)
-    autoUpdater.forceDevUpdateConfig = false;
+    // Only ever true in dev with CT_DEV_UPDATER=1; makes electron-updater read
+    // dev-app-update.yml so the cycle can be tested without packaging.
+    autoUpdater.forceDevUpdateConfig = !app.isPackaged && DEV_UPDATER_ENABLED;
 
     // Handle update available
     autoUpdater.on('update-available', (info) => {
@@ -140,11 +202,11 @@ class UpdaterService {
   }
 
   /**
-   * Check for updates (only in production)
-   * @param {boolean} isPackaged - Whether the app is packaged
+   * Check for updates (only in production, or in dev with CT_DEV_UPDATER=1)
+   * @param {boolean} [isPackaged] - Whether the app is packaged
    */
-  checkForUpdates(isPackaged) {
-    if (isPackaged) {
+  checkForUpdates(isPackaged = app.isPackaged) {
+    if (isPackaged || DEV_UPDATER_ENABLED) {
       this.clearStalePendingCache();
       this.initialize();
       autoUpdater.checkForUpdatesAndNotify();
@@ -186,11 +248,29 @@ class UpdaterService {
   }
 
   /**
-   * Manually trigger update check
+   * Manually trigger an update check.
+   * Always resolves with a verdict instead of leaking electron-updater's raw
+   * result: the server version alone is not an update (it equals the installed
+   * version when up to date), and in dev the check cannot run at all.
+   * @returns {Promise<{available: boolean, version: string|null, currentVersion: string, devMode: boolean}>}
    */
-  manualCheck() {
+  async manualCheck() {
+    const currentVersion = app.getVersion();
+
+    if (!this.isUpdaterAvailable()) {
+      return { available: false, version: null, currentVersion, devMode: true };
+    }
+
     this.initialize();
-    return autoUpdater.checkForUpdates();
+    const result = await autoUpdater.checkForUpdates();
+    const version = result?.updateInfo?.version || null;
+
+    return {
+      available: !!version && compareVersions(version, currentVersion) > 0,
+      version,
+      currentVersion,
+      devMode: false
+    };
   }
 
   /**
@@ -271,7 +351,7 @@ class UpdaterService {
     return new Promise((resolve) => {
       const options = {
         hostname: 'api.github.com',
-        path: `/repos/Sterll/claude-terminal/releases/tags/v${version}`,
+        path: `/repos/${UPDATE_REPO.owner}/${UPDATE_REPO.repo}/releases/tags/v${version}`,
         headers: {
           'User-Agent': 'ClaudeTerminal',
           'Accept': 'application/vnd.github.v3+json'

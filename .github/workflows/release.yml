@@ -180,3 +180,47 @@ jobs:
         run: npx electron-builder --linux --publish always --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    # electron-builder always creates the GitHub release as a DRAFT. The github
+    # provider in electron-updater resolves the feed through /releases/latest,
+    # which excludes drafts — so until this job runs, latest.yml is unreachable
+    # and no installed client ever sees the update.
+    needs: [build-windows, merge-mac-yml, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          REPO="${{ github.repository }}"
+
+          RELEASE_ID=$(gh api "repos/$REPO/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$TAG\") | .id")
+          if [ -z "$RELEASE_ID" ]; then
+            echo "::error::Release for tag $TAG not found"
+            exit 1
+          fi
+
+          # Fail loudly if the update manifests never made it to the release —
+          # a published release without latest.yml breaks every client.
+          ASSETS=$(gh api "repos/$REPO/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
+          for REQUIRED in latest.yml latest-mac.yml latest-linux.yml; do
+            echo "$ASSETS" | grep -qx "$REQUIRED" || {
+              echo "::error::Missing $REQUIRED in release $TAG"; exit 1; }
+          done
+
+          # The in-app update banner renders the release body as its changelog,
+          # so generate notes when electron-builder left it empty.
+          BODY=$(gh api "repos/$REPO/releases/$RELEASE_ID" --jq '.body // ""')
+          if [ -z "$BODY" ]; then
+            NOTES=$(gh api -X POST "repos/$REPO/releases/generate-notes" \
+              -f tag_name="$TAG" --jq '.body')
+            gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -f body="$NOTES" >/dev/null
+          fi
+
+          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" \
+            -F draft=false -f make_latest=true >/dev/null
+          echo "Published release $TAG"

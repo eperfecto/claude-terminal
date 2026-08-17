@@ -301,9 +301,8 @@ function registerDialogHandlers() {
   // Manually check for updates
   ipcMain.handle('check-for-updates', async () => {
     try {
-      updaterService.initialize();
       const result = await updaterService.manualCheck();
-      return { success: true, version: result?.updateInfo?.version || null };
+      return { success: true, ...result };
     } catch (err) {
       return { success: false, error: err.message };
     }

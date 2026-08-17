@@ -11,6 +11,7 @@
  */
 
 const { resolveUnpackGlobs } = require('./scripts/resolve-unpack-deps');
+const { UPDATE_REPO } = require('./src/main/utils/updateRepo');
 
 const UNPACK_ROOTS = [
   // Agent SDK (spawned as child process)
@@ -127,9 +128,12 @@ module.exports = {
       Terminal: "false"
     }
   },
+  // The feed baked into app-update.yml. Owner/repo come from
+  // src/main/utils/updateRepo.js so the runtime changelog fetch cannot drift
+  // away from the repository the installers are actually published to.
   publish: {
     provider: "github",
-    owner: "Sterll",
-    repo: "claude-terminal"
+    owner: UPDATE_REPO.owner,
+    repo: UPDATE_REPO.repo
   }
 };

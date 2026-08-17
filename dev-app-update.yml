@@ -1,0 +1,8 @@
+# Feed used ONLY when running unpackaged with CT_DEV_UPDATER=1.
+# electron-updater reads this instead of resources/app-update.yml (which
+# electron-builder generates from the `publish` block at build time).
+# Keep in sync with src/main/utils/updateRepo.js.
+provider: github
+owner: eperfecto
+repo: claude-terminal
+updaterCacheDirName: claude-terminal-updater
