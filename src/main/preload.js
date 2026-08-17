@@ -398,11 +398,12 @@ contextBridge.exposeInMainWorld('electron_api', {
     selectFile: (params) => ipcRenderer.invoke('select-file', params),
     saveFileDialog: (params) => ipcRenderer.invoke('save-file-dialog', params),
     openInExplorer: (path) => ipcRenderer.send('open-in-explorer', path),
-    openInEditor: (params) => ipcRenderer.send('open-in-editor', params),
+    openInEditor: (params) => ipcRenderer.invoke('open-in-editor', params),
     openExternal: (url) => ipcRenderer.send('open-external', url),
     watchFile: (filePath) => ipcRenderer.invoke('watch-file', filePath),
     unwatchFile: (filePath) => ipcRenderer.invoke('unwatch-file', filePath),
-    onFileChanged: createListener('file-changed')
+    onFileChanged: createListener('file-changed'),
+    onOpenInEditorFailed: createListener('editor-open-failed')
   },
 
   // ==================== EXPLORER FILE WATCHER ====================

@@ -43,6 +43,7 @@
     "addHint": "Click + to add one",
     "openFolder": "Open folder",
     "openInEditor": "Open in {editor}",
+    "openInEditorFailed": "Could not open {editor}. Make sure it is installed and available in your PATH.",
     "changeEditor": "Change editor",
     "globalDefault": "Default (global)",
     "customize": "Customize",

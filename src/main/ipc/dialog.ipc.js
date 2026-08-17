@@ -29,6 +29,24 @@ const DANGEROUS_CHARS = /[;&|$`<>^\n\r\0"]/;
 // .cmd / .bat cannot be launched by CreateProcess directly — they need cmd.exe.
 const WINDOWS_SCRIPT_EXT = /\.(cmd|bat)$/i;
 
+// How long a non-zero exit still counts as "the editor failed to launch".
+const EDITOR_FAILURE_WINDOW_MS = 4000;
+
+/**
+ * Tell the renderer that an editor could not be opened, so it can show a toast
+ * instead of the click appearing to do nothing.
+ * @param {string} editor
+ * @param {string} error
+ */
+function _reportEditorFailure(editor, error) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send('editor-open-failed', { editor, error });
+  } catch (e) {
+    // Window went away between the guard and the send — nothing to report to.
+  }
+}
+
 /**
  * Read the editor configured in settings, used when the caller omits `editor`.
  * @returns {string}
@@ -77,22 +95,37 @@ function _resolveWindowsLauncher(bin) {
 /**
  * Build the argv for spawning an editor WITHOUT a shell.
  * @param {string} editorBin
- * @returns {{ file: string, args: string[] }}
+ * @param {string} targetPath
+ * @returns {{ file: string, args: string[], options: object }}
  */
-function _buildEditorCommand(editorBin) {
-  if (process.platform !== 'win32') return { file: editorBin, args: [] };
+function _buildEditorCommand(editorBin, targetPath) {
+  if (process.platform !== 'win32') return { file: editorBin, args: [targetPath], options: {} };
 
   const resolved = _resolveWindowsLauncher(editorBin);
   // Not found: spawn it as-is so the caller gets a real ENOENT instead of silence.
-  if (!resolved) return { file: editorBin, args: [] };
+  if (!resolved) return { file: editorBin, args: [targetPath], options: {} };
 
   if (WINDOWS_SCRIPT_EXT.test(resolved)) {
-    // PATH-based launchers (`code`, `cursor`, `zed`…) are .cmd wrappers. cmd.exe
-    // is required, but both the launcher path and the target have already been
-    // rejected if they contain any metacharacter, so nothing can be injected.
-    return { file: process.env.COMSPEC || 'cmd.exe', args: ['/d', '/s', '/c', resolved] };
+    // PATH-based launchers (`code`, `cursor`, `zed`…) are .cmd wrappers, and
+    // .cmd/.bat cannot be started by CreateProcess directly — cmd.exe is required.
+    //
+    // The command line must be built by hand. With `/s`, cmd.exe strips the FIRST
+    // and LAST quote character of the rest of the line and runs what remains
+    // verbatim; letting Node quote the arguments normally would therefore break
+    // any launcher path containing a space (the default VS Code install lives in
+    // "…\Microsoft VS Code\bin\code.cmd"). Wrapping the whole thing in an extra
+    // pair of quotes gives `/s` something to eat while both inner tokens survive.
+    //
+    // Nothing can be injected here: DANGEROUS_CHARS has already rejected quotes
+    // and every shell metacharacter in both the launcher path and the target.
+    const cmdline = `""${resolved}" "${targetPath}""`;
+    return {
+      file: process.env.COMSPEC || 'cmd.exe',
+      args: ['/d', '/s', '/c', cmdline],
+      options: { windowsVerbatimArguments: true },
+    };
   }
-  return { file: resolved, args: [] };
+  return { file: resolved, args: [targetPath], options: {} };
 }
 
 /**
@@ -129,14 +162,31 @@ function openInEditor(params) {
   }
 
   try {
-    const { file, args } = _buildEditorCommand(editorBin);
-    const proc = spawn(file, [...args, targetPath], {
+    const { file, args, options } = _buildEditorCommand(editorBin, targetPath);
+    const proc = spawn(file, args, {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
+      ...options,
     });
     proc.on('error', (error) => {
       console.error(`[Dialog IPC] Failed to open editor "${editorBin}":`, error.message);
+      _reportEditorFailure(editorBin, error.message);
+    });
+    // The launch can also fail asynchronously with a non-zero exit code while the
+    // spawn itself succeeded (a cmd.exe wrapper that cannot find the launcher, an
+    // editor rejecting the path…). stdio is ignored, so the exit code is the only
+    // signal we get. Only a FAST failure counts: GUI editors either exit 0 right
+    // away after handing off to a running instance or stay alive, while terminal
+    // editors (vim, nvim) can legitimately exit non-zero much later.
+    const failureWindow = setTimeout(() => proc.removeAllListeners('exit'), EDITOR_FAILURE_WINDOW_MS);
+    if (typeof failureWindow.unref === 'function') failureWindow.unref();
+    proc.on('exit', (code) => {
+      clearTimeout(failureWindow);
+      if (code) {
+        console.error(`[Dialog IPC] Editor "${editorBin}" exited with code ${code}`);
+        _reportEditorFailure(editorBin, `Editor exited with code ${code}`);
+      }
     });
     proc.unref();
     return { success: true };
@@ -315,5 +365,8 @@ function registerDialogHandlers() {
 
 module.exports = {
   registerDialogHandlers,
-  setMainWindow
+  setMainWindow,
+  // Exported for tests
+  openInEditor,
+  _buildEditorCommand
 };
