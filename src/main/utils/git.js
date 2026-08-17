@@ -1938,6 +1938,9 @@ module.exports = {
   killAllGitProcesses,
   getGitInfo,
   getGitInfoFull,
+  // Exported for the filter bar's pull/push counts: getGitInfoFull also returns
+  // ahead/behind but costs ~15 git processes, where this one costs two.
+  getAheadBehind,
   getGitStatusQuick,
   getGitStatusDetailed,
   gitPull,

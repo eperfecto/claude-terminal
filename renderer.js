@@ -107,6 +107,7 @@ const registry = require('./src/project-types/registry');
 const { mergeTranslations } = require('./src/renderer/i18n');
 const ModalComponent = require('./src/renderer/ui/components/Modal');
 const { showImportProjectsModal } = require('./src/renderer/ui/components/ImportProjectsModal');
+const { formatAheadBehind } = require('./src/renderer/utils/gitFormat');
 const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel, CloudPanel, ConnectivityPanel, ControlTowerPanel, SessionReplayPanel, ParallelTaskPanel, WorkspacePanel, ErrorLogPanel } = require('./src/renderer/ui/panels');
 // Not re-exported by the panels index: ConnectivityPanel embeds it as a sub-tab,
 // but its polling lifecycle is driven from the tab registry below.
@@ -4548,6 +4549,8 @@ const filterBtnPull = document.getElementById('filter-btn-pull');
 const filterBtnPush = document.getElementById('filter-btn-push');
 const filterBtnBranch = document.getElementById('filter-btn-branch');
 const filterBranchName = document.getElementById('filter-branch-name');
+const filterPullCount = document.getElementById('filter-pull-count');
+const filterPushCount = document.getElementById('filter-push-count');
 const branchDropdown = document.getElementById('branch-dropdown');
 const branchDropdownList = document.getElementById('branch-dropdown-list');
 
@@ -4560,8 +4563,57 @@ function getEffectiveGitPath() {
   return currentFilterWorktreePath || getProject(currentFilterProjectId)?.path;
 }
 
+// ── Pull / push counts ──────────────────────────────────────────────────────
+// `ahead` is local knowledge and always exact. `behind` only moves when something
+// has fetched, and nothing else in the app fetches in the background — that is
+// what the periodic refresh further down is for.
+let _aheadBehindVersion = 0;
+
+function setCountBadge(el, show, value) {
+  if (!el) return;
+  el.textContent = String(value);
+  el.style.display = show ? '' : 'none';
+}
+
+function clearFilterAheadBehind() {
+  setCountBadge(filterPullCount, false, 0);
+  setCountBadge(filterPushCount, false, 0);
+}
+
+async function refreshFilterAheadBehind({ fetch = false } = {}) {
+  const projectId = currentFilterProjectId;
+  const gitPath = getEffectiveGitPath();
+  if (!projectId || !gitPath) {
+    clearFilterAheadBehind();
+    return;
+  }
+
+  const callVersion = ++_aheadBehindVersion;
+  let result = null;
+  try {
+    result = await api.git.aheadBehind({ projectPath: gitPath, fetch });
+  } catch (e) {
+    result = null;
+  }
+  // Discard if a newer refresh started, or the user moved to another project,
+  // while we awaited — otherwise stale counts land on the wrong repo.
+  if (callVersion !== _aheadBehindVersion || currentFilterProjectId !== projectId) return;
+
+  const counts = formatAheadBehind(result);
+  setCountBadge(filterPullCount, counts.showBehind, counts.behind);
+  setCountBadge(filterPushCount, counts.showAhead, counts.ahead);
+
+  filterBtnPull.title = counts.showBehind
+    ? t('projects.gitPullCount', { count: counts.behind })
+    : t('projects.gitPull');
+  filterBtnPush.title = counts.showAhead
+    ? t('projects.gitPushCount', { count: counts.ahead })
+    : t('projects.gitPush');
+}
+
 function hideFilterGitActions() {
   filterGitActions.style.display = 'none';
+  clearFilterAheadBehind();
   branchDropdown.classList.remove('active');
   filterBtnBranch.classList.remove('open');
   currentFilterProjectId = null;
@@ -4605,6 +4657,9 @@ function handleActiveTerminalChange(id, termData) {
       api.git.currentBranch({ projectPath: gitPath })
         .then(branch => { if (filterBranchName) filterBranchName.textContent = branch || 'main'; })
         .catch(() => {});
+      // A worktree tab points at a different checkout, so the counts belong to
+      // a different branch too.
+      refreshFilterAheadBehind({ fetch: false });
     }
   }
 }
@@ -4627,6 +4682,9 @@ async function showFilterGitActions(projectId) {
     return;
   }
 
+  // Blank the counts only on a real project change: re-rendering the same
+  // project would otherwise flash the badges off and back on.
+  if (currentFilterProjectId !== projectId) clearFilterAheadBehind();
   currentFilterProjectId = projectId;
   filterGitActions.style.display = 'flex';
 
@@ -4646,6 +4704,10 @@ async function showFilterGitActions(projectId) {
   filterBtnPull.disabled = !!gitOps.pulling;
   filterBtnPush.classList.toggle('loading', !!gitOps.pushing);
   filterBtnPush.disabled = !!gitOps.pushing;
+
+  // Not awaited: it carries its own staleness guard and must not delay the
+  // branch name. No fetch here — selecting a project stays instant.
+  refreshFilterAheadBehind({ fetch: false });
 
   // Get current branch (use worktree path if active tab is a worktree)
   try {
@@ -4672,6 +4734,8 @@ filterBtnPull.onclick = async () => {
   if (currentFilterProjectId === projectId) {
     filterBtnPull.classList.remove('loading');
     filterBtnPull.disabled = false;
+    // The pull just synced with the remote, so local data is fresh: no fetch.
+    refreshFilterAheadBehind({ fetch: false });
   }
 };
 
@@ -4688,8 +4752,24 @@ filterBtnPush.onclick = async () => {
   if (currentFilterProjectId === projectId) {
     filterBtnPush.classList.remove('loading');
     filterBtnPush.disabled = false;
+    refreshFilterAheadBehind({ fetch: false });
   }
 };
+
+// The only background fetch in the app, and deliberately the narrowest one:
+// without it the pull count would sit at 0 while the remote moves on, since
+// `behind` is only as fresh as the last fetch. Scoped to the selected project so
+// we never hit every remote the user has cloned.
+const AHEAD_BEHIND_FETCH_INTERVAL_MS = 5 * 60 * 1000;
+setInterval(() => {
+  if (!currentFilterProjectId) return;
+  if (filterGitActions.style.display === 'none') return;
+  // A hidden window has nobody reading the badge; don't spend the network on it.
+  if (document.hidden) return;
+  const gitOps = localState.gitOperations.get(currentFilterProjectId) || {};
+  if (gitOps.pulling || gitOps.pushing) return;
+  refreshFilterAheadBehind({ fetch: true });
+}, AHEAD_BEHIND_FETCH_INTERVAL_MS);
 
 // Branch button - toggle dropdown
 filterBtnBranch.onclick = async (e) => {

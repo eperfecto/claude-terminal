@@ -53,6 +53,8 @@
     "newFolder": "Nueva carpeta",
     "gitPull": "Git Pull",
     "gitPush": "Git Push",
+    "gitPullCount": "Git Pull — {count} commit(s) para bajar",
+    "gitPushCount": "Git Push — {count} commit(s) para subir",
     "newWorktree": "Nuevo worktree",
     "worktreeExisting": "Worktrees existentes",
     "worktreeOpen": "Abrir",
