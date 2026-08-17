@@ -206,4 +206,39 @@ describe('active sessions section', () => {
     pl._renderNow();
     expect(idsIn('.active-projects-section')).toEqual(['blog']);
   });
+
+  test('labels the tree below the section with a "Projects" heading', () => {
+    addTerminal(1, claudeTab('blog', '2026-01-01T10:00:00.000Z'));
+
+    new ProjectList()._renderNow();
+
+    const heading = list.querySelector('.projects-section-header .projects-section-title');
+    expect(heading).not.toBeNull();
+    // The heading divides the two groups, so it must come after the section
+    expect(
+      list.querySelector('.active-projects-section')
+        .compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  test('omits the heading when nothing is hoisted', () => {
+    new ProjectList()._renderNow();
+
+    expect(list.querySelector('.active-projects-section')).toBeNull();
+    expect(list.querySelector('.projects-section-header')).toBeNull();
+  });
+
+  test('omits the heading when every project was hoisted', () => {
+    projectsState.set({
+      projects: [project('blog', 'blog')],
+      folders: [],
+      rootOrder: ['blog']
+    });
+    addTerminal(1, claudeTab('blog', '2026-01-01T10:00:00.000Z'));
+
+    new ProjectList()._renderNow();
+
+    expect(idsIn('.active-projects-section')).toEqual(['blog']);
+    expect(list.querySelector('.projects-section-header')).toBeNull();
+  });
 });

@@ -91,6 +91,7 @@
     "existingTags": "Tags existants",
     "clearTagFilter": "Supprimer le filtre",
     "activeSection": "Sessions actives",
+    "listSection": "Projets",
     "manageTags": "Gérer les tags",
     "searchPlaceholder": "Rechercher un projet...",
     "emptyGuide": "Ajoutez un projet pour commencer avec Claude Code",

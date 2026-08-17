@@ -1365,11 +1365,14 @@ class ProjectList extends BaseComponent {
       </div>`;
     }
 
+    // Built separately so the "Projects" heading can be skipped when the tree
+    // renders nothing — a lone heading under the active section reads as a bug.
+    let treeHtml = '';
     state.rootOrder.forEach(itemId => {
       const folder = getFolder(itemId);
       if (folder) {
         const folderHtml = this._renderFolderHtml(folder, 0, searchQuery, activeSet);
-        if (folderHtml) html += folderHtml;
+        if (folderHtml) treeHtml += folderHtml;
       } else {
         const project = getProject(itemId);
         if (project) {
@@ -1377,10 +1380,19 @@ class ProjectList extends BaseComponent {
           if (!this._showArchived && project.archived) return;
           if (this._selectedTagFilter && !(project.tags || []).includes(this._selectedTagFilter)) return;
           if (searchQuery && !project.name.toLowerCase().includes(searchQuery) && !project.path.toLowerCase().includes(searchQuery)) return;
-          html += this._renderProjectHtml(project, 0);
+          treeHtml += this._renderProjectHtml(project, 0);
         }
       }
     });
+
+    // Only label the tree when something was hoisted above it; with no active
+    // section the whole list is the projects list and the heading is noise.
+    if (activeProjects.length > 0 && treeHtml) {
+      html += `<div class="projects-section-header">
+        <span class="projects-section-title">${t('projects.listSection')}</span>
+      </div>`;
+    }
+    html += treeHtml;
 
     // Search empty state
     if (searchQuery && !html) {

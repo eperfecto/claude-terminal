@@ -3864,7 +3864,8 @@ body.compact-projects .project-item:not(.active):hover {
   margin-bottom: 4px;
 }
 
-.active-projects-header {
+.active-projects-header,
+.projects-section-header {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3875,7 +3876,8 @@ body.compact-projects .project-item:not(.active):hover {
   color: var(--text-muted);
 }
 
-.active-projects-title {
+.active-projects-title,
+.projects-section-title {
   font-weight: 600;
 }
 
