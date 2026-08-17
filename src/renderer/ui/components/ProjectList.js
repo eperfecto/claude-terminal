@@ -45,6 +45,8 @@ const {
   isPathMissing,
   // Quick actions
   getQuickActions,
+  // Active Claude sessions
+  getProjectIdsWithClaudeSession,
 } = require('../../state');
 const { escapeHtml } = require('../../utils');
 const { sanitizeColor } = require('../../utils/color');
@@ -169,13 +171,17 @@ class ProjectList extends BaseComponent {
       });
     }
 
-    // Re-render when card button settings change
+    // Re-render when settings that change the list layout are toggled
     const { settingsState } = require('../../state/settings.state');
-    this._lastCardButtonsKey = JSON.stringify(settingsState.get().cardButtons || {});
+    const layoutSettingsKey = () => JSON.stringify({
+      cardButtons: settingsState.get().cardButtons || {},
+      activeProjectsFirst: settingsState.get().activeProjectsFirst === true,
+    });
+    this._lastLayoutSettingsKey = layoutSettingsKey();
     this._settingsUnsub = settingsState.subscribe(() => {
-      const key = JSON.stringify(settingsState.get().cardButtons || {});
-      if (key !== self._lastCardButtonsKey) {
-        self._lastCardButtonsKey = key;
+      const key = layoutSettingsKey();
+      if (key !== self._lastLayoutSettingsKey) {
+        self._lastLayoutSettingsKey = key;
         self.render();
       }
     });
@@ -231,7 +237,21 @@ class ProjectList extends BaseComponent {
     }, 100);
   }
 
-  _renderFolderHtml(folder, depth, searchQuery = '') {
+  /**
+   * The three visibility filters the tree applies to every project, so the
+   * hoisted "active" section stays consistent with what the tree shows.
+   * @param {Object} project
+   * @param {string} searchQuery
+   * @returns {boolean}
+   */
+  _passesFilters(project, searchQuery) {
+    if (!this._showArchived && project.archived) return false;
+    if (this._selectedTagFilter && !(project.tags || []).includes(this._selectedTagFilter)) return false;
+    if (searchQuery && !project.name.toLowerCase().includes(searchQuery) && !project.path.toLowerCase().includes(searchQuery)) return false;
+    return true;
+  }
+
+  _renderFolderHtml(folder, depth, searchQuery = '', activeSet = new Set()) {
     const projectCount = countProjectsRecursive(folder.id);
     const childFolders = getChildFolders(folder.id);
     const childProjects = getProjectsInFolder(folder.id);
@@ -249,7 +269,7 @@ class ProjectList extends BaseComponent {
       children.forEach(childId => {
         const childFolder = getFolder(childId);
         if (childFolder) {
-          const subHtml = this._renderFolderHtml(childFolder, depth + 1, searchQuery);
+          const subHtml = this._renderFolderHtml(childFolder, depth + 1, searchQuery, activeSet);
           if (subHtml) {
             childrenHtml += subHtml;
             renderedIds.add(childId);
@@ -257,7 +277,9 @@ class ProjectList extends BaseComponent {
         } else {
           const childProject = getProject(childId);
           if (childProject && childProject.folderId === folder.id) {
-            if (!this._showArchived && childProject.archived) { renderedIds.add(childId); }
+            // Hoisted into the active section: mark as handled so the legacy pass below skips it
+            if (activeSet.has(childProject.id)) { renderedIds.add(childId); }
+            else if (!this._showArchived && childProject.archived) { renderedIds.add(childId); }
             else if (this._selectedTagFilter && !(childProject.tags || []).includes(this._selectedTagFilter)) { renderedIds.add(childId); }
             else if (searchQuery && !childProject.name.toLowerCase().includes(searchQuery) && !childProject.path.toLowerCase().includes(searchQuery)) { renderedIds.add(childId); }
             else { childrenHtml += this._renderProjectHtml(childProject, depth + 1); renderedIds.add(childId); }
@@ -268,6 +290,7 @@ class ProjectList extends BaseComponent {
       // Render any projects not in children array (legacy data)
       childProjects.forEach(project => {
         if (!renderedIds.has(project.id)) {
+          if (activeSet.has(project.id)) return;
           if (!this._showArchived && project.archived) return;
           if (this._selectedTagFilter && !(project.tags || []).includes(this._selectedTagFilter)) return;
           if (searchQuery && !project.name.toLowerCase().includes(searchQuery) && !project.path.toLowerCase().includes(searchQuery)) return;
@@ -524,6 +547,9 @@ class ProjectList extends BaseComponent {
     function onDragStart(e) {
       const el = e.target.closest('[draggable="true"]');
       if (!el) return;
+      // Rows in the hoisted "active" section sit at a synthetic position, so dragging
+      // them would reorder rootOrder against a place the user never sees.
+      if (el.closest('.active-projects-section')) return;
       e.stopPropagation();
       const projectId = el.dataset.projectId;
       const folderId = el.dataset.folderId;
@@ -593,6 +619,13 @@ class ProjectList extends BaseComponent {
 
       // Project item
       const project = e.target.closest('.project-item');
+      if (project && project.closest('.active-projects-section')) {
+        // The hoisted section is neither a drag source nor a drop target
+        e.dataTransfer.dropEffect = 'none';
+        clearDropIndicators(list);
+        self._dragState.dropTarget = null;
+        return;
+      }
       if (project) {
         e.preventDefault();
         e.stopPropagation();
@@ -641,6 +674,11 @@ class ProjectList extends BaseComponent {
       e.preventDefault();
       e.stopPropagation();
       clearDropIndicators(list);
+      // Never resolve a drop inside the hoisted section (defends against a stale dropTarget)
+      if (e.target.closest('.active-projects-section')) {
+        self._dragState.dropTarget = null;
+        return;
+      }
       if (!self._dragState.dragging || !self._dragState.dropTarget) {
         // Root drop zone (no dropTarget set yet for simple drops)
         if (e.target.closest('.drop-zone-root') && self._dragState.dragging) {
@@ -1306,14 +1344,36 @@ class ProjectList extends BaseComponent {
       html += `</div>`;
     }
 
+    // Projects with an open Claude session are hoisted into a flat section on top
+    // and skipped in the tree below. This is a render-time projection only: rootOrder,
+    // folder children and folderId are never touched, so closing the last session puts
+    // the project back exactly where it was.
+    const activeProjects = getSetting('activeProjectsFirst')
+      ? getProjectIdsWithClaudeSession()
+          .map(projectId => getProject(projectId))
+          .filter(project => project && this._passesFilters(project, searchQuery))
+      : [];
+    const activeSet = new Set(activeProjects.map(project => project.id));
+
+    if (activeProjects.length > 0) {
+      html += `<div class="active-projects-section">
+        <div class="active-projects-header">
+          <span class="active-projects-title">${t('projects.activeSection')}</span>
+          <span class="active-projects-count">${activeProjects.length}</span>
+        </div>
+        ${activeProjects.map(project => this._renderProjectHtml(project, 0)).join('')}
+      </div>`;
+    }
+
     state.rootOrder.forEach(itemId => {
       const folder = getFolder(itemId);
       if (folder) {
-        const folderHtml = this._renderFolderHtml(folder, 0, searchQuery);
+        const folderHtml = this._renderFolderHtml(folder, 0, searchQuery, activeSet);
         if (folderHtml) html += folderHtml;
       } else {
         const project = getProject(itemId);
         if (project) {
+          if (activeSet.has(project.id)) return;
           if (!this._showArchived && project.archived) return;
           if (this._selectedTagFilter && !(project.tags || []).includes(this._selectedTagFilter)) return;
           if (searchQuery && !project.name.toLowerCase().includes(searchQuery) && !project.path.toLowerCase().includes(searchQuery)) return;

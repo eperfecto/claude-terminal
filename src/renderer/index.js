@@ -43,6 +43,7 @@ state.skillsAgentsState.subscribe(() => {
 const _api = window.electron_api;
 _registerCloudListeners(_api);
 _registerMcpProjectListeners(_api);
+_registerEditorListeners(_api);
 
 // ── Cloud event handlers ──────────────────────────────────────────────────
 
@@ -101,6 +102,24 @@ function _registerMcpProjectListeners(api) {
       }
     });
   }
+}
+
+// ── External editor event handlers ───────────────────────────────────────────
+
+/**
+ * Launching an external editor is fire-and-forget on purpose, so a failure used
+ * to be completely invisible: the button looked broken. The main process now
+ * reports it, and every call site (project list, git changes, file explorer,
+ * chat, skills) is covered by this single listener.
+ */
+function _registerEditorListeners(api) {
+  if (!api?.dialog?.onOpenInEditorFailed) return;
+
+  const Toast = require('./ui/components/Toast');
+
+  api.dialog.onOpenInEditorFailed(({ editor } = {}) => {
+    Toast.showError(i18n.t('projects.openInEditorFailed', { editor: editor || '' }));
+  });
 }
 
 // Telemetry consent modal is handled in renderer.js (main entry point)

@@ -29,6 +29,9 @@ const {
   findResourceByShortcut,
   getSetting,
   setSetting,
+  getProjectEditor,
+  getEditorCommand,
+  EDITOR_OPTIONS,
   heartbeat,
   stopProject,
   getProjectSettings: getProjectSettingsState,
@@ -2235,6 +2238,48 @@ class TerminalManager extends BaseComponent {
     if (wrapper) wrapper.style.display = 'none';
   }
 
+  // ── Open in external editor ──
+
+  /**
+   * Show the "open in editor" button for the filtered project. Unlike the git
+   * group it is always available: every project has a path, repo or not.
+   * The editor honours the per-project override before the global setting,
+   * exactly like the project list's more-actions menu.
+   * @param {object} project
+   */
+  _renderEditorButton(project) {
+    const btn = document.getElementById('filter-btn-editor');
+    if (!btn) return;
+    if (!project || !project.path) {
+      this._hideEditorButton();
+      return;
+    }
+
+    const editor = getProjectEditor(project.id) || getSetting('editor') || 'code';
+    const label = (EDITOR_OPTIONS.find(o => o.value === editor) || {}).label
+      || (editor === 'custom' ? t('settings.editorCustom') : editor);
+
+    const name = document.getElementById('filter-editor-name');
+    if (name) name.textContent = label;
+    btn.title = t('projects.openInEditor', { editor: label });
+    btn.style.display = 'flex';
+
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      window.electron_api.dialog.openInEditor({
+        editor: getEditorCommand(editor),
+        path: project.path
+      });
+    };
+  }
+
+  _hideEditorButton() {
+    const btn = document.getElementById('filter-btn-editor');
+    if (!btn) return;
+    btn.style.display = 'none';
+    btn.onclick = null;
+  }
+
   // ── Filter by project ──
 
   filterByProject(projectIndex) {
@@ -2254,6 +2299,7 @@ class TerminalManager extends BaseComponent {
       }
 
       this._renderPromptsBar(projects[projectIndex]);
+      this._renderEditorButton(projects[projectIndex]);
     } else {
       filterIndicator.style.display = 'none';
 
@@ -2263,6 +2309,7 @@ class TerminalManager extends BaseComponent {
       }
 
       this._hidePromptsBar();
+      this._hideEditorButton();
     }
 
     const tabsById = new Map();

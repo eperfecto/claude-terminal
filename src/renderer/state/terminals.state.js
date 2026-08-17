@@ -168,6 +168,38 @@ function getTerminalStatsForProject(projectIndex) {
 }
 
 /**
+ * Project ids that currently have at least one open Claude session (Claude
+ * terminal tab or chat tab), ordered with the most recently started first.
+ * Basic shells and service consoles (fivem/webapp/file) don't count.
+ *
+ * Worktree and chat tabs carry the owning project in parentProjectId, so it
+ * takes precedence over the project object attached to the tab.
+ * @returns {string[]}
+ */
+function getProjectIdsWithClaudeSession() {
+  const newestByProject = new Map();
+  let seq = 0;
+  const terminals = terminalsState.get().terminals;
+  terminals.forEach(term => {
+    if (!term || term.isBasic) return;
+    if (term.type === 'fivem' || term.type === 'webapp' || term.type === 'file') return;
+    const projectId = term.parentProjectId || (term.project && term.project.id);
+    if (!projectId) return;
+    // createdAt is an ISO string, so plain string comparison orders it correctly.
+    // seq keeps Map insertion order as a fallback for entries without createdAt.
+    const candidate = { stamp: term.createdAt || '', seq: seq++ };
+    const current = newestByProject.get(projectId);
+    if (!current || candidate.stamp > current.stamp ||
+        (candidate.stamp === current.stamp && candidate.seq > current.seq)) {
+      newestByProject.set(projectId, candidate);
+    }
+  });
+  return [...newestByProject.entries()]
+    .sort((a, b) => b[1].stamp.localeCompare(a[1].stamp) || b[1].seq - a[1].seq)
+    .map(([projectId]) => projectId);
+}
+
+/**
  * Find a terminal entry by its stable tabId.
  * @param {string} tabId
  * @returns {{ id: any, data: Object } | null}
@@ -343,6 +375,7 @@ module.exports = {
   getDetailTerminal,
   countTerminalsForProject,
   getTerminalStatsForProject,
+  getProjectIdsWithClaudeSession,
   getTerminalsForProject,
   killTerminalsForProject,
   clearAllTerminals,

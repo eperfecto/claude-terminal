@@ -31,6 +31,7 @@ const KNOWN_SETTINGS = new Set([
   'accentColor',
   'language',
   'compactProjects',
+  'activeProjectsFirst',
   'showDotfiles',
   'showTabModeToggle',
   'pinnedTabs',

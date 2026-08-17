@@ -100,6 +100,7 @@
     "noTags": "Sin etiquetas",
     "existingTags": "Etiquetas existentes",
     "clearTagFilter": "Eliminar filtro",
+    "activeSection": "Sesiones activas",
     "manageTags": "Gestionar etiquetas"
   },
   "terminals": {
@@ -843,6 +844,8 @@
     "launchAtStartupError": "No se pudo cambiar el inicio automático.",
     "compactProjects": "Vista compacta de proyectos",
     "compactProjectsDesc": "Mostrar solo el nombre de los proyectos no seleccionados",
+    "activeProjectsFirst": "Sesiones activas arriba",
+    "activeProjectsFirstDesc": "Mover los proyectos con una sesión de Claude abierta a una sección superior, fuera de su carpeta",
     "cardButtonClaude": "Botón Claude en las tarjetas de proyecto",
     "cardButtonClaudeDesc": "Mostrar el acceso directo a Claude Code en cada tarjeta de proyecto",
     "cardButtonTerminal": "Botón Terminal en las tarjetas de proyecto",

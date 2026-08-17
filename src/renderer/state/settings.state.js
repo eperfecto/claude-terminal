@@ -23,6 +23,7 @@ const defaultSettings = {
   shortcuts: {}, // Custom keyboard shortcuts overrides
   language: null, // null = auto-detect, 'fr' = French, 'en' = English
   compactProjects: true, // Compact project list (only show name when not active)
+  activeProjectsFirst: false, // Hoist projects with an open Claude session into a flat section on top
   customPresets: [], // Custom quick action presets [{name, command, icon}]
   aiCommitMessages: true, // Use Claude Haiku for AI commit messages
   defaultTerminalMode: 'terminal', // 'terminal' or 'chat' - default mode for new Claude terminals
@@ -237,6 +238,23 @@ function resetSettings() {
 }
 
 /**
+ * Available editor options. Every value is also the binary to launch, and the
+ * list must stay in sync with the editor dropdown in SettingsPanel — otherwise
+ * a chosen editor silently falls back to VS Code in getEditorCommand().
+ * 'custom' is deliberately absent: it is resolved from customEditorCommand.
+ */
+const EDITOR_OPTIONS = [
+  { value: 'code', label: 'VS Code' },
+  { value: 'cursor', label: 'Cursor' },
+  { value: 'zed', label: 'Zed' },
+  { value: 'subl', label: 'Sublime Text' },
+  { value: 'webstorm', label: 'WebStorm' },
+  { value: 'idea', label: 'IntelliJ IDEA' },
+  { value: 'nvim', label: 'Neovim' },
+  { value: 'vim', label: 'Vim' }
+];
+
+/**
  * Get editor command for a given editor type
  * @param {string} editor
  * @returns {string}
@@ -245,24 +263,8 @@ function getEditorCommand(editor) {
   if (editor === 'custom') {
     return settingsState.get().customEditorCommand || 'code';
   }
-  const commands = {
-    code: 'code',
-    cursor: 'cursor',
-    webstorm: 'webstorm',
-    idea: 'idea'
-  };
-  return commands[editor] || 'code';
+  return EDITOR_OPTIONS.some(opt => opt.value === editor) ? editor : 'code';
 }
-
-/**
- * Available editor options
- */
-const EDITOR_OPTIONS = [
-  { value: 'code', label: 'VS Code' },
-  { value: 'cursor', label: 'Cursor' },
-  { value: 'webstorm', label: 'WebStorm' },
-  { value: 'idea', label: 'IntelliJ IDEA' }
-];
 
 /**
  * Get notifications enabled state

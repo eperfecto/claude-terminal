@@ -32,6 +32,12 @@ describe('getEditorCommand', () => {
     expect(getEditorCommand('idea')).toBe('idea');
   });
 
+  // These are offered by the settings dropdown, so they must not fall back to
+  // VS Code — that silently opened the wrong editor from the project list.
+  test.each(['zed', 'subl', 'nvim', 'vim'])('"%s" returns itself', (editor) => {
+    expect(getEditorCommand(editor)).toBe(editor);
+  });
+
   test('unknown editor falls back to "code"', () => {
     expect(getEditorCommand('unknown')).toBe('code');
   });
@@ -42,8 +48,16 @@ describe('getEditorCommand', () => {
 });
 
 describe('EDITOR_OPTIONS', () => {
-  test('has 4 items', () => {
-    expect(EDITOR_OPTIONS).toHaveLength(4);
+  test('covers every editor offered by the settings dropdown', () => {
+    expect(EDITOR_OPTIONS.map(o => o.value)).toEqual([
+      'code', 'cursor', 'zed', 'subl', 'webstorm', 'idea', 'nvim', 'vim'
+    ]);
+  });
+
+  test('every value is a launchable command', () => {
+    EDITOR_OPTIONS.forEach(opt => {
+      expect(getEditorCommand(opt.value)).toBe(opt.value);
+    });
   });
 
   test('each item has value and label', () => {
@@ -65,6 +79,7 @@ describe('getSettings', () => {
     expect(settings).toHaveProperty('notificationsEnabled');
     expect(settings).toHaveProperty('closeAction');
     expect(settings).toHaveProperty('compactProjects');
+    expect(settings).toHaveProperty('activeProjectsFirst');
     expect(settings).toHaveProperty('customPresets');
   });
 });
@@ -434,6 +449,10 @@ describe('setting default values', () => {
 
   test('compactProjects defaults to true', () => {
     expect(getSetting('compactProjects')).toBe(true);
+  });
+
+  test('activeProjectsFirst defaults to false', () => {
+    expect(getSetting('activeProjectsFirst')).toBe(false);
   });
 
   test('customPresets defaults to empty array', () => {

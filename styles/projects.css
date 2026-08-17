@@ -3855,3 +3855,50 @@ body.compact-projects .project-item:not(.active):hover {
   border-color: var(--accent);
   outline: none;
 }
+
+/* ── Active Claude sessions section ── */
+
+.active-projects-section {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+
+.active-projects-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: var(--font-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.active-projects-title {
+  font-weight: 600;
+}
+
+.active-projects-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: var(--font-2xs);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* Rows here are a shortcut, not a position in the tree: no drag affordance */
+.active-projects-section .project-item {
+  cursor: pointer;
+}
+
+.active-projects-section .project-item:active {
+  cursor: pointer;
+}

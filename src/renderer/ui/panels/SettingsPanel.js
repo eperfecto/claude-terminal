@@ -716,6 +716,16 @@ class SettingsPanel extends BasePanel {
               </div>
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
+                  <div>${t('settings.activeProjectsFirst')}</div>
+                  <div class="settings-toggle-desc">${t('settings.activeProjectsFirstDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="active-projects-first-toggle" ${settings.activeProjectsFirst === true ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
                   <div>${t('settings.cardButtonClaude')}</div>
                   <div class="settings-toggle-desc">${t('settings.cardButtonClaudeDesc')}</div>
                 </div>
@@ -1787,6 +1797,8 @@ class SettingsPanel extends BasePanel {
 
       const compactProjectsToggle = document.getElementById('compact-projects-toggle');
       const newCompactProjects = compactProjectsToggle ? compactProjectsToggle.checked : true;
+      const activeProjectsFirstToggle = document.getElementById('active-projects-first-toggle');
+      const newActiveProjectsFirst = activeProjectsFirstToggle ? activeProjectsFirstToggle.checked : false;
       const cardClaudeToggle = document.getElementById('card-button-claude-toggle');
       const cardTerminalToggle = document.getElementById('card-button-terminal-toggle');
       const newCardButtons = {
@@ -1867,6 +1879,7 @@ class SettingsPanel extends BasePanel {
         terminalTheme: newTerminalTheme,
         language: newLanguage,
         compactProjects: newCompactProjects,
+        activeProjectsFirst: newActiveProjectsFirst,
         cardButtons: newCardButtons,
         restoreTerminalSessions: newRestoreTerminalSessions,
         reduceMotion: newReduceMotion,
