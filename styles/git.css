@@ -37,7 +37,10 @@
   top: calc(100% + 6px);
   width: 460px;
   max-width: calc(100vw - 32px);
-  max-height: min(480px, calc(100vh - 100px));
+  /* 70% of the viewport height. The second term is a floor guard: the panel
+     hangs below the filter bar, so on a very short window it must still stop
+     before the bottom edge. */
+  max-height: min(70vh, calc(100vh - 100px));
   background: var(--bg-secondary);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 12px;
