@@ -25,6 +25,8 @@ class GitChangesPanel extends BasePanel {
    * @param {Function} options.closeBranchDropdown
    * @param {Function} options.closeActionsDropdown
    * @param {Function} [options.openGitTab]
+   * @param {Function} [options.onChangesCount] — receives the working tree file
+   *   count so the filter bar owns the badge; falls back to writing it directly
    */
   constructor(el, options = {}) {
     super(el, options);
@@ -40,6 +42,7 @@ class GitChangesPanel extends BasePanel {
     this._closeActionsDropdown = options.closeActionsDropdown;
     this._closePromptsDropdown = options.closePromptsDropdown;
     this._openGitTab = options.openGitTab || null;
+    this._onChangesCount = options.onChangesCount || null;
 
     // DOM element refs (acquired lazily)
     this._gitChangesPanel = null;
@@ -1014,6 +1017,12 @@ class GitChangesPanel extends BasePanel {
 
   _updateChangesCount() {
     const count = this._state.files.length;
+    // The filter bar owns this badge (it also keeps it fresh while the panel is
+    // closed). Hand it the count instead of writing the DOM twice.
+    if (this._onChangesCount) {
+      this._onChangesCount(count, this._state.projectId);
+      return;
+    }
     if (count > 0) {
       this._changesCountBadge.textContent = count;
       this._changesCountBadge.style.display = 'inline';
@@ -1373,7 +1382,8 @@ function init(context) {
     closeBranchDropdown: context.closeBranchDropdown,
     closeActionsDropdown: context.closeActionsDropdown,
     closePromptsDropdown: context.closePromptsDropdown,
-    openGitTab: context.openGitTab
+    openGitTab: context.openGitTab,
+    onChangesCount: context.onChangesCount
   });
 }
 

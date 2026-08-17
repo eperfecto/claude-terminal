@@ -4554,6 +4554,8 @@ const filterBtnBranch = document.getElementById('filter-btn-branch');
 const filterBranchName = document.getElementById('filter-branch-name');
 const filterPullCount = document.getElementById('filter-pull-count');
 const filterPushCount = document.getElementById('filter-push-count');
+const filterBtnChanges = document.getElementById('filter-btn-changes');
+const filterChangesCount = document.getElementById('changes-count');
 const branchDropdown = document.getElementById('branch-dropdown');
 const branchDropdownList = document.getElementById('branch-dropdown-list');
 
@@ -4614,9 +4616,59 @@ async function refreshFilterAheadBehind({ fetch = false } = {}) {
     : t('projects.gitPush');
 }
 
+// ── Working tree changes count ──────────────────────────────────────────────
+// The badge used to be written only by GitChangesPanel, which loads its data
+// when the panel opens — so the count stayed hidden until the user clicked it.
+// Ownership lives here now, next to the other filter-bar badges: this module
+// keeps it fresh on its own, and the panel reports its (authoritative, already
+// loaded) count through setFilterChangesCount so both paths write one place.
+let _changesCountVersion = 0;
+
+function setFilterChangesCount(count) {
+  // Every write invalidates in-flight refreshes: whoever wrote last had the
+  // freshest read, and a slower request must not overwrite it.
+  _changesCountVersion++;
+  if (!filterChangesCount) return;
+  const show = Number.isFinite(count) && count > 0;
+  filterChangesCount.textContent = String(show ? count : 0);
+  filterChangesCount.style.display = show ? 'inline' : 'none';
+  if (filterBtnChanges) filterBtnChanges.classList.toggle('has-changes', show);
+}
+
+function clearFilterChangesCount() {
+  setFilterChangesCount(0);
+}
+
+async function refreshFilterChangesCount() {
+  const projectId = currentFilterProjectId;
+  const gitPath = getEffectiveGitPath();
+  if (!projectId || !gitPath) {
+    clearFilterChangesCount();
+    return;
+  }
+
+  const callVersion = ++_changesCountVersion;
+  let result = null;
+  try {
+    // statusQuick is a single local `git status --porcelain` — no network, and
+    // it already returns changesCount.
+    result = await api.git.statusQuick({ projectPath: gitPath });
+  } catch (e) {
+    result = null;
+  }
+  if (callVersion !== _changesCountVersion || currentFilterProjectId !== projectId) return;
+
+  if (!result || result.error || !result.isGitRepo) {
+    setFilterChangesCount(0);
+    return;
+  }
+  setFilterChangesCount(result.changesCount);
+}
+
 function hideFilterGitActions() {
   filterGitActions.style.display = 'none';
   clearFilterAheadBehind();
+  clearFilterChangesCount();
   branchDropdown.classList.remove('active');
   filterBtnBranch.classList.remove('open');
   currentFilterProjectId = null;
@@ -4661,8 +4713,9 @@ function handleActiveTerminalChange(id, termData) {
         .then(branch => { if (filterBranchName) filterBranchName.textContent = branch || 'main'; })
         .catch(() => {});
       // A worktree tab points at a different checkout, so the counts belong to
-      // a different branch too.
+      // a different branch and a different working tree too.
       refreshFilterAheadBehind({ fetch: false });
+      refreshFilterChangesCount();
     }
   }
 }
@@ -4687,7 +4740,10 @@ async function showFilterGitActions(projectId) {
 
   // Blank the counts only on a real project change: re-rendering the same
   // project would otherwise flash the badges off and back on.
-  if (currentFilterProjectId !== projectId) clearFilterAheadBehind();
+  if (currentFilterProjectId !== projectId) {
+    clearFilterAheadBehind();
+    clearFilterChangesCount();
+  }
   currentFilterProjectId = projectId;
   filterGitActions.style.display = 'flex';
 
@@ -4708,9 +4764,10 @@ async function showFilterGitActions(projectId) {
   filterBtnPush.classList.toggle('loading', !!gitOps.pushing);
   filterBtnPush.disabled = !!gitOps.pushing;
 
-  // Not awaited: it carries its own staleness guard and must not delay the
+  // Not awaited: they carry their own staleness guard and must not delay the
   // branch name. No fetch here — selecting a project stays instant.
   refreshFilterAheadBehind({ fetch: false });
+  refreshFilterChangesCount();
 
   // Get current branch (use worktree path if active tab is a worktree)
   try {
@@ -4739,6 +4796,9 @@ filterBtnPull.onclick = async () => {
     filterBtnPull.disabled = false;
     // The pull just synced with the remote, so local data is fresh: no fetch.
     refreshFilterAheadBehind({ fetch: false });
+    // A pull rewrites the working tree (and can leave conflict markers), so the
+    // changes count moves with it. Push never touches the working tree.
+    refreshFilterChangesCount();
   }
 };
 
@@ -4773,6 +4833,19 @@ setInterval(() => {
   if (gitOps.pulling || gitOps.pushing) return;
   refreshFilterAheadBehind({ fetch: true });
 }, AHEAD_BEHIND_FETCH_INTERVAL_MS);
+
+// The working tree moves far faster than the remote — the user edits files from
+// terminals, agents and external editors — and reading it is a single local git
+// process with no network, so this one runs on a much shorter leash.
+const CHANGES_COUNT_INTERVAL_MS = 15 * 1000;
+setInterval(() => {
+  if (!currentFilterProjectId) return;
+  if (filterGitActions.style.display === 'none') return;
+  if (document.hidden) return;
+  const gitOps = localState.gitOperations.get(currentFilterProjectId) || {};
+  if (gitOps.pulling || gitOps.pushing) return;
+  refreshFilterChangesCount();
+}, CHANGES_COUNT_INTERVAL_MS);
 
 // Branch button - toggle dropdown
 filterBtnBranch.onclick = async (e) => {
@@ -5071,6 +5144,13 @@ GitChangesPanel.init({
   getEffectiveGitPath,
   getProject,
   refreshDashboardAsync,
+  // The panel has just loaded the real file list, so its count wins over
+  // whatever the periodic refresh last read — unless the user moved to another
+  // project while it was loading.
+  onChangesCount: (count, projectId) => {
+    if (projectId && projectId !== currentFilterProjectId) return;
+    setFilterChangesCount(count);
+  },
   closeBranchDropdown: () => { branchDropdown.classList.remove('active'); filterBtnBranch.classList.remove('open'); },
   closeActionsDropdown: () => { const d = document.getElementById('actions-dropdown'); const b = document.getElementById('filter-btn-actions'); if (d) d.classList.remove('active'); if (b) b.classList.remove('open'); },
   closePromptsDropdown: () => { const d = document.getElementById('prompts-dropdown'); const b = document.getElementById('filter-btn-prompts'); if (d) d.classList.remove('active'); if (b) b.classList.remove('open'); }
