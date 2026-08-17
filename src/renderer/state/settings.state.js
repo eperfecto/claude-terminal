@@ -24,6 +24,7 @@ const defaultSettings = {
   language: null, // null = auto-detect, 'fr' = French, 'en' = English
   compactProjects: true, // Compact project list (only show name when not active)
   activeProjectsFirst: false, // Hoist projects with an open Claude session into a flat section on top
+  hideProjectIcons: false, // Hide project icons in the list, keep only the color indicator (folders unaffected)
   customPresets: [], // Custom quick action presets [{name, command, icon}]
   aiCommitMessages: true, // Use Claude Haiku for AI commit messages
   defaultTerminalMode: 'terminal', // 'terminal' or 'chat' - default mode for new Claude terminals

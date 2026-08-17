@@ -1467,6 +1467,23 @@ body.compact-projects .project-item:not(.active):hover {
   margin-right: 2px;
 }
 
+/* Placeholder indicator for projects with no custom color: only shown when the
+   project icon is hidden, so the row keeps a visual marker. */
+.color-indicator.default {
+  display: none;
+}
+
+/* "Hide project icons" setting - projects only, folders keep their icon */
+body.hide-project-icons .project-item .project-name > svg,
+body.hide-project-icons .project-item .project-emoji-icon {
+  display: none;
+}
+
+body.hide-project-icons .project-item .color-indicator.default {
+  display: block;
+  background: var(--text-muted);
+}
+
 .btn-folder-color {
   display: flex;
   align-items: center;

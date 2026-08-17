@@ -870,6 +870,8 @@
     "launchAtStartupError": "Failed to change the launch at startup setting.",
     "compactProjects": "Compact projects view",
     "compactProjectsDesc": "Show only the name of unselected projects",
+    "hideProjectIcons": "Hide project icons",
+    "hideProjectIconsDesc": "Show only the color indicator on projects, without the icon (folders are not affected)",
     "activeProjectsFirst": "Active sessions on top",
     "activeProjectsFirstDesc": "Move projects with an open Claude session to a section at the top, out of their folder",
     "cardButtonClaude": "Claude button on project cards",

@@ -468,7 +468,12 @@ class ProjectList extends BaseComponent {
     </button>`;
 
     const statusIndicator = typeHandler.getStatusIndicator(typeCtx);
-    const colorIndicator = projectColor ? `<span class="color-indicator" style="background: ${projectColor}"></span>` : '';
+    // The indicator is always rendered: when no custom color is set it stays
+    // hidden by CSS, unless "hide project icons" is on - then it is the only
+    // visual marker left on the row, so it falls back to a neutral color.
+    const colorIndicator = safeProjectColor
+      ? `<span class="color-indicator" style="background: ${safeProjectColor}"></span>`
+      : '<span class="color-indicator default"></span>';
 
     // Get time tracking data
     const times = getProjectTimes(project.id);

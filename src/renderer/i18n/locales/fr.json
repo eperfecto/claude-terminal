@@ -965,6 +965,8 @@
     "launchAtStartupError": "Impossible de modifier le lancement au démarrage.",
     "compactProjects": "Vue compacte des projets",
     "compactProjectsDesc": "Afficher uniquement le nom des projets non sélectionnés",
+    "hideProjectIcons": "Masquer les icônes de projet",
+    "hideProjectIconsDesc": "Afficher uniquement l'indicateur de couleur sur les projets, sans l'icône (les dossiers ne sont pas affectés)",
     "activeProjectsFirst": "Sessions actives en haut",
     "activeProjectsFirstDesc": "Déplacer les projets ayant une session Claude ouverte vers une section en haut, hors de leur dossier",
     "cardButtonClaude": "Bouton Claude sur les cartes projet",

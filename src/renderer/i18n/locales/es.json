@@ -867,6 +867,8 @@
     "launchAtStartupError": "No se pudo cambiar el inicio automático.",
     "compactProjects": "Vista compacta de proyectos",
     "compactProjectsDesc": "Mostrar solo el nombre de los proyectos no seleccionados",
+    "hideProjectIcons": "Ocultar iconos de proyecto",
+    "hideProjectIconsDesc": "Mostrar solo el indicador de color en los proyectos, sin el icono (no afecta a las carpetas)",
     "activeProjectsFirst": "Sesiones activas arriba",
     "activeProjectsFirstDesc": "Mover los proyectos con una sesión de Claude abierta a una sección superior, fuera de su carpeta",
     "cardButtonClaude": "Botón Claude en las tarjetas de proyecto",

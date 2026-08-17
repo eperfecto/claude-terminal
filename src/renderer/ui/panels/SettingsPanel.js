@@ -716,6 +716,16 @@ class SettingsPanel extends BasePanel {
               </div>
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
+                  <div>${t('settings.hideProjectIcons')}</div>
+                  <div class="settings-toggle-desc">${t('settings.hideProjectIconsDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="hide-project-icons-toggle" ${settings.hideProjectIcons === true ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
                   <div>${t('settings.activeProjectsFirst')}</div>
                   <div class="settings-toggle-desc">${t('settings.activeProjectsFirstDesc')}</div>
                 </div>
@@ -1799,6 +1809,8 @@ class SettingsPanel extends BasePanel {
       const newCompactProjects = compactProjectsToggle ? compactProjectsToggle.checked : true;
       const activeProjectsFirstToggle = document.getElementById('active-projects-first-toggle');
       const newActiveProjectsFirst = activeProjectsFirstToggle ? activeProjectsFirstToggle.checked : false;
+      const hideProjectIconsToggle = document.getElementById('hide-project-icons-toggle');
+      const newHideProjectIcons = hideProjectIconsToggle ? hideProjectIconsToggle.checked : false;
       const cardClaudeToggle = document.getElementById('card-button-claude-toggle');
       const cardTerminalToggle = document.getElementById('card-button-terminal-toggle');
       const newCardButtons = {
@@ -1880,6 +1892,7 @@ class SettingsPanel extends BasePanel {
         language: newLanguage,
         compactProjects: newCompactProjects,
         activeProjectsFirst: newActiveProjectsFirst,
+        hideProjectIcons: newHideProjectIcons,
         cardButtons: newCardButtons,
         restoreTerminalSessions: newRestoreTerminalSessions,
         reduceMotion: newReduceMotion,
@@ -1932,6 +1945,7 @@ class SettingsPanel extends BasePanel {
       } catch (_) { /* discordRpc bridge unavailable */ }
 
       document.body.classList.toggle('compact-projects', newCompactProjects);
+      document.body.classList.toggle('hide-project-icons', newHideProjectIcons);
       document.body.classList.toggle('reduce-motion', newReduceMotion);
       document.body.classList.toggle('hide-tab-mode-toggle', !newShowTabModeToggle);
       self._ctx.applyAccentColor(newSettings.accentColor);

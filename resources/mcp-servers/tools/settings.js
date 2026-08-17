@@ -32,6 +32,7 @@ const KNOWN_SETTINGS = new Set([
   'language',
   'compactProjects',
   'activeProjectsFirst',
+  'hideProjectIcons',
   'showDotfiles',
   'showTabModeToggle',
   'pinnedTabs',

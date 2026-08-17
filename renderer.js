@@ -303,6 +303,9 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   if (settingsState.get().compactProjects !== false) {
     document.body.classList.add('compact-projects');
   }
+  if (settingsState.get().hideProjectIcons) {
+    document.body.classList.add('hide-project-icons');
+  }
   if (settingsState.get().reduceMotion) {
     document.body.classList.add('reduce-motion');
   }
