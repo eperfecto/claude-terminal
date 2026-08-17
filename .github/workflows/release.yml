@@ -21,7 +21,15 @@ jobs:
       - run: npm run build:renderer
       - run: npm test
       - name: Build and publish Windows installer
-        run: npx electron-builder --win --publish always --config electron-builder.config.js
+        # Retried like the macOS builds: the publish step talks to the GitHub API,
+        # which has returned sustained 503s during a release, and an unretried
+        # upload throws away a finished build.
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08  # v3.0.2
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          retry_wait_seconds: 120
+          command: npx electron-builder --win --publish always --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -44,12 +52,14 @@ jobs:
       - run: npm run build:renderer
       - run: npm test
       - name: Build and publish macOS DMG (${{ matrix.arch }})
-        # Retry up to 3 times — hdiutil can fail with "Resource busy" on GH Actions runners
+        # Retried for hdiutil "Resource busy" on GH Actions runners, and for the
+        # GitHub API 503s that killed the v1.2.19 publish. 15s between attempts
+        # burned all three inside a minute of an outage that lasted minutes.
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08  # v3.0.2
         with:
-          timeout_minutes: 20
+          timeout_minutes: 30
           max_attempts: 3
-          retry_wait_seconds: 15
+          retry_wait_seconds: 120
           command: npx electron-builder --mac --${{ matrix.arch }} --publish always --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -177,7 +187,12 @@ jobs:
       - run: npm run build:renderer
       - run: npm test
       - name: Build and publish Linux AppImage
-        run: npx electron-builder --linux --publish always --config electron-builder.config.js
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08  # v3.0.2
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          retry_wait_seconds: 120
+          command: npx electron-builder --linux --publish always --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
