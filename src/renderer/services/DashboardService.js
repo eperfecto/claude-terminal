@@ -14,6 +14,7 @@ const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
 const registry = require('../../project-types/registry');
 const KanbanPanel = require('../ui/panels/KanbanPanel');
+const { matchMarkers } = require('../../shared/project-markers');
 
 // Per-project active view: 'overview' | 'kanban'
 const _dashViews = new Map();
@@ -123,32 +124,6 @@ function writeDiskCache(projectPath, data) {
 
 // ========== PROJECT TYPE DETECTION ==========
 
-const PROJECT_TYPE_MARKERS = [
-  // Order matters: more specific first
-  { type: 'fivem',      label: 'FiveM',      color: '#F97316', files: ['fxmanifest.lua', '__resource.lua'] },
-  { type: 'next',       label: 'Next.js',    color: '#000000', deps: ['next'] },
-  { type: 'nuxt',       label: 'Nuxt',       color: '#00DC82', deps: ['nuxt'] },
-  { type: 'svelte',     label: 'Svelte',     color: '#FF3E00', deps: ['svelte'] },
-  { type: 'angular',    label: 'Angular',    color: '#DD0031', files: ['angular.json'] },
-  { type: 'react',      label: 'React',      color: '#61DAFB', deps: ['react'] },
-  { type: 'vue',        label: 'Vue',        color: '#42B883', deps: ['vue'] },
-  { type: 'electron',   label: 'Electron',   color: '#9FEAF9', deps: ['electron'] },
-  { type: 'express',    label: 'Express',    color: '#68A063', deps: ['express'] },
-  { type: 'nestjs',     label: 'NestJS',     color: '#E0234E', deps: ['@nestjs/core'] },
-  { type: 'typescript', label: 'TypeScript', color: '#3178C6', files: ['tsconfig.json'] },
-  { type: 'node',       label: 'Node.js',    color: '#68A063', files: ['package.json'] },
-  { type: 'rust',       label: 'Rust',       color: '#DEA584', files: ['Cargo.toml'] },
-  { type: 'go',         label: 'Go',         color: '#00ADD8', files: ['go.mod'] },
-  { type: 'python',     label: 'Python',     color: '#3776AB', files: ['requirements.txt', 'pyproject.toml', 'setup.py', 'Pipfile'] },
-  { type: 'ruby',       label: 'Ruby',       color: '#CC342D', files: ['Gemfile'] },
-  { type: 'java',       label: 'Java',       color: '#ED8B00', files: ['pom.xml', 'build.gradle', 'build.gradle.kts'] },
-  { type: 'csharp',     label: 'C#',         color: '#512BD4', files: ['*.sln', '*.csproj'] },
-  { type: 'php',        label: 'PHP',        color: '#777BB4', files: ['composer.json'] },
-  { type: 'dart',       label: 'Flutter',    color: '#02569B', files: ['pubspec.yaml'] },
-  { type: 'cpp',        label: 'C/C++',      color: '#00599C', files: ['CMakeLists.txt', 'Makefile'] },
-  { type: 'lua',        label: 'Lua',        color: '#000080', files: ['*.lua'] },
-];
-
 /**
  * Parse package.json dependencies
  * @param {string} projectPath
@@ -175,51 +150,16 @@ async function getPackageDeps(projectPath) {
  */
 async function detectProjectType(projectPath) {
   try {
-    // Read directory listing once (covers all *.ext glob patterns + exact filenames)
-    let dirEntries = null;
-    const getDirEntries = async () => {
-      if (dirEntries === null) {
-        try { dirEntries = await fs.promises.readdir(projectPath); } catch { dirEntries = []; }
-      }
-      return dirEntries;
-    };
+    // One readdir (covers *.ext globs and exact filenames), and package.json
+    // parsed only when it is actually there. Matching itself lives in
+    // src/shared/project-markers.js so the import scanner agrees with us.
+    let entries;
+    try { entries = await fs.promises.readdir(projectPath); } catch { entries = []; }
+    const deps = entries.includes('package.json')
+      ? await getPackageDeps(projectPath)
+      : new Set();
 
-    // Parse package.json once (lazy)
-    let deps = null;
-    const getDeps = async () => {
-      if (deps === null) deps = await getPackageDeps(projectPath);
-      return deps;
-    };
-
-    for (const marker of PROJECT_TYPE_MARKERS) {
-      // Check file markers using cached dir listing
-      if (marker.files) {
-        const entries = await getDirEntries();
-        const hasFile = marker.files.some(f => {
-          if (f.startsWith('*.')) {
-            const ext = f.slice(1); // e.g. '.lua'
-            return entries.some(e => e.endsWith(ext));
-          }
-          return entries.includes(f);
-        });
-        if (hasFile) {
-          if (!marker.deps) return { type: marker.type, label: marker.label, color: marker.color };
-        } else if (!marker.deps) {
-          continue;
-        }
-      }
-
-      // Check dependency markers (package.json parsed at most once)
-      if (marker.deps) {
-        const d = await getDeps();
-        if (d.size === 0) continue;
-        if (marker.deps.some(dep => d.has(dep))) {
-          return { type: marker.type, label: marker.label, color: marker.color };
-        }
-      }
-    }
-
-    return null;
+    return matchMarkers(entries, deps);
   } catch (e) {
     return null;
   }
