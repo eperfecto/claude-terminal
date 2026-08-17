@@ -103,3 +103,5 @@ scripts/test-plan-output.log
 /test.txt
 /test-audit-prompt.md
 /proofwebhook.txt
+# Skill registry cache (local tooling)
+.atl/
