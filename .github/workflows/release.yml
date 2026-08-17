@@ -197,8 +197,22 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           REPO="${{ github.repository }}"
 
-          RELEASE_ID=$(gh api "repos/$REPO/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"$TAG\") | .id")
+          # The GitHub API returns transient 5xx often enough that a single blip
+          # would otherwise throw away a finished four-platform build.
+          retry() {
+            local attempt
+            for attempt in 1 2 3 4 5; do
+              "$@" && return 0
+              echo "attempt $attempt failed, retrying in $((attempt * 5))s..." >&2
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
+
+          # Match on the name too: a draft release can report its tag_name as a
+          # `untagged-<sha>` placeholder rather than the tag it was created with.
+          RELEASE_ID=$(retry gh api "repos/$REPO/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$TAG\" or .name == \"${TAG#v}\") | .id" | head -1)
           if [ -z "$RELEASE_ID" ]; then
             echo "::error::Release for tag $TAG not found"
             exit 1
@@ -206,7 +220,7 @@ jobs:
 
           # Fail loudly if the update manifests never made it to the release —
           # a published release without latest.yml breaks every client.
-          ASSETS=$(gh api "repos/$REPO/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
+          ASSETS=$(retry gh api "repos/$REPO/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
           for REQUIRED in latest.yml latest-mac.yml latest-linux.yml; do
             echo "$ASSETS" | grep -qx "$REQUIRED" || {
               echo "::error::Missing $REQUIRED in release $TAG"; exit 1; }
@@ -214,13 +228,23 @@ jobs:
 
           # The in-app update banner renders the release body as its changelog,
           # so generate notes when electron-builder left it empty.
-          BODY=$(gh api "repos/$REPO/releases/$RELEASE_ID" --jq '.body // ""')
+          BODY=$(retry gh api "repos/$REPO/releases/$RELEASE_ID" --jq '.body // ""')
           if [ -z "$BODY" ]; then
-            NOTES=$(gh api -X POST "repos/$REPO/releases/generate-notes" \
+            NOTES=$(retry gh api -X POST "repos/$REPO/releases/generate-notes" \
               -f tag_name="$TAG" --jq '.body')
-            gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -f body="$NOTES" >/dev/null
+            retry gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -f body="$NOTES" >/dev/null
           fi
 
-          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" \
-            -F draft=false -f make_latest=true >/dev/null
+          # tag_name is set explicitly: electron-updater resolves the feed through
+          # /releases/latest -> tag_name -> /releases/download/<tag>/latest.yml, so
+          # publishing with a placeholder tag would both strand the release away
+          # from its real tag and leave a junk tag behind in the repository.
+          retry gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" \
+            -f tag_name="$TAG" -F draft=false -f make_latest=true >/dev/null
+
+          PUBLISHED_TAG=$(retry gh api "repos/$REPO/releases/latest" --jq '.tag_name')
+          if [ "$PUBLISHED_TAG" != "$TAG" ]; then
+            echo "::error::/releases/latest resolves to '$PUBLISHED_TAG', expected '$TAG' — the update feed would be wrong"
+            exit 1
+          fi
           echo "Published release $TAG"
