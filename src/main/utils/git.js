@@ -1616,17 +1616,38 @@ async function getFileHistory(projectPath, filePath, options = {}) {
 // ── Commit file-by-file diffs ──
 
 async function getCommitFileDiffs(projectPath, commitHash) {
-  // Get list of changed files with stats
-  const statsOutput = await execGit(projectPath, `diff-tree --no-commit-id -r --numstat ${commitHash}`, 15000);
+  // Diff against the first parent so merge commits show what the merge brought in
+  // (diff-tree alone omits merge commits unless -m/-c is passed).
+  const parentRef = `${commitHash}^1`;
+  let statsOutput = await execGit(projectPath, ['diff', '--numstat', parentRef, commitHash], 15000);
+  let statusOutput = await execGit(projectPath, ['diff', '--name-status', parentRef, commitHash], 15000);
+  if (statsOutput === null || statusOutput === null) {
+    // Root commit has no parent — diff against the empty tree instead
+    statsOutput = await execGit(projectPath, ['diff-tree', '--root', '--no-commit-id', '-r', '--numstat', commitHash], 15000);
+    statusOutput = await execGit(projectPath, ['diff-tree', '--root', '--no-commit-id', '-r', '--name-status', commitHash], 15000);
+  }
+
+  const statusByPath = new Map();
+  if (statusOutput) {
+    for (const line of statusOutput.split('\n').filter(Boolean)) {
+      const [status, ...pathParts] = line.split('\t');
+      if (status && pathParts.length) {
+        statusByPath.set(pathParts[pathParts.length - 1], status[0]);
+      }
+    }
+  }
+
   const files = [];
   if (statsOutput) {
     for (const line of statsOutput.split('\n').filter(Boolean)) {
       const match = line.match(/^(\d+|-)\s+(\d+|-)\s+(.+)$/);
       if (match) {
+        const path = match[3];
         files.push({
           additions: match[1] === '-' ? 0 : parseInt(match[1]) || 0,
           deletions: match[2] === '-' ? 0 : parseInt(match[2]) || 0,
-          path: match[3]
+          path,
+          status: statusByPath.get(path) || 'M'
         });
       }
     }

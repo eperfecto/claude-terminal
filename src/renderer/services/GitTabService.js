@@ -2473,19 +2473,15 @@ async function handleCommitDetail(hash) {
   ]);
   const { failed, text: detail, message } = readDiffPayload(detailPayload);
 
-  const content = failed
-    ? diffErrorHtml(message)
-    : detail
-      ? `<div class="git-diff-view">${renderDiffWithLineNumbers(detail)}</div>`
-      : `<p style="color:var(--text-secondary);padding:16px">${t('gitTab.noDiffAvailable')}</p>`;
-
   // Build per-file diff section
+  const hasFiles = fileDiffs?.success && fileDiffs.files?.length > 0;
   let filesHtml = '';
-  if (fileDiffs?.success && fileDiffs.files?.length > 0) {
+  if (hasFiles) {
     filesHtml = `<div class="git-commit-files-header">${t('gitTab.changedFiles')} (${fileDiffs.files.length})</div>`;
     filesHtml += '<div class="git-commit-files-list">';
     for (const f of fileDiffs.files) {
       filesHtml += `<div class="git-commit-file-item" data-file="${escapeAttr(f.path)}" data-hash="${escapeAttr(hash)}">
+        <span class="git-file-status ${escapeAttr(f.status || 'M')}">${escapeHtml(f.status || 'M')}</span>
         <span class="git-commit-file-name">${escapeHtml(f.path)}</span>
         <span class="git-commit-file-stats">
           ${f.additions > 0 ? `<span class="diff-stat-add">+${f.additions}</span>` : ''}
@@ -2498,7 +2494,15 @@ async function handleCommitDetail(hash) {
     filesHtml += '</div>';
   }
 
-  const fullContent = `${filesHtml}<div class="git-diff-view"><pre class="git-diff-content">${escapeHtml(detail)}</pre></div>`;
+  const diffSectionHtml = failed
+    ? diffErrorHtml(message)
+    : detail
+      ? `<div class="git-diff-view"><pre class="git-diff-content">${escapeHtml(detail)}</pre></div>`
+      : hasFiles
+        ? ''
+        : `<p style="color:var(--text-secondary);padding:16px">${t('gitTab.noDiffAvailable')}</p>`;
+
+  const fullContent = `${filesHtml}${diffSectionHtml}`;
 
   const modal = createModal({
     id: 'git-commit-detail-modal',
