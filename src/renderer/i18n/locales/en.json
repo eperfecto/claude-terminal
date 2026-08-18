@@ -1905,7 +1905,28 @@
     "showLastResponse": "See response",
     "emptyTitle": "No active Claude sessions",
     "emptyDesc": "Open a terminal or start a chat to begin.",
-    "activityThinking": "Thinking…"
+    "activityThinking": "Thinking…",
+    "viewList": "List view",
+    "viewGrid": "Grid view",
+    "filterAllProjects": "All projects",
+    "filterAllStatuses": "All statuses",
+    "filterWorking": "Working",
+    "filterWaiting": "Waiting",
+    "filterIdle": "Idle",
+    "filterDone": "Done",
+    "filterError": "Error",
+    "sortRecent": "Recent activity",
+    "sortOldest": "Oldest activity",
+    "sortProject": "Project",
+    "sortStatus": "Status",
+    "searchPlaceholder": "Search sessions…",
+    "noMatches": "No sessions match the filters.",
+    "lastActivity": "Last activity",
+    "justNow": "now",
+    "backToGrid": "Back to overview",
+    "newSession": "New session",
+    "renameSession": "Rename session",
+    "openInClaude": "Open in Claude view"
   },
   "remote": {
     "tabTitle": "Remote",
@@ -2352,7 +2373,9 @@
     "rename": "Rename",
     "close": "Close",
     "closeOthers": "Close Others",
-    "closeToRight": "Close Tabs to Right"
+    "closeToLeft": "Close Tabs to Left",
+    "closeToRight": "Close Tabs to Right",
+    "closeAll": "Close All"
   },
   "telemetry": {
     "consentTitle": "Help Improve Claude Terminal",

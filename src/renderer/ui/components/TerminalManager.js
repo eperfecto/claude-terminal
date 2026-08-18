@@ -121,6 +121,43 @@ function loadWebglAddon(terminal) {
   }
 }
 
+// OSC 52 lets apps inside the PTY (Claude Code, tmux, remote SSH sessions)
+// push text to the system clipboard. xterm.js does not implement it, so
+// without this handler those copies are silently dropped while the inner
+// app still reports success.
+//
+// Only register this on PTY-backed terminals the user drives themselves. Any
+// byte stream reaching a terminal can trigger it, so it is deliberately NOT
+// registered on project-type consoles (fivem/webapp/api/minecraft), which pipe
+// output from a server process that has no business writing the clipboard.
+// Reads are refused for the same reason: they would let that output exfiltrate
+// whatever the user last copied.
+const OSC52_MAX_PAYLOAD = 1_000_000;
+
+function registerOsc52Handler(terminal) {
+  terminal.parser.registerOscHandler(52, (data) => {
+    const semi = data.indexOf(';');
+    if (semi === -1) return true;
+    const payload = data.slice(semi + 1);
+    if (!payload || payload === '?') return true; // clipboard reads not supported
+    // xterm allows up to 10 MB per sequence; cap what we will decode and hand
+    // to the OS clipboard so a runaway app cannot push megabytes into it.
+    if (payload.length > OSC52_MAX_PAYLOAD) return true;
+    try {
+      const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+      const text = new TextDecoder().decode(bytes);
+      if (window.electron_api?.app?.clipboardWrite) {
+        window.electron_api.app.clipboardWrite(text);
+      } else {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('OSC 52 clipboard decode failed:', e.message);
+    }
+    return true;
+  });
+}
+
 function resetOutputSilenceTimer(_id) { /* no-op */ }
 function clearOutputSilenceTimer(_id) { /* no-op */ }
 
@@ -695,6 +732,11 @@ class TerminalManager extends BaseComponent {
     const now = Date.now();
     if (now - this._lastPasteTime < PASTE_DEBOUNCE_MS) return;
     this._lastPasteTime = now;
+    // Pasting is user interaction (bypasses onKey)
+    if (inputChannel === 'terminal-input') {
+      const td = getTerminal(terminalId);
+      if (td) td.lastInputAt = now;
+    }
     const api = this._api;
     const sendPaste = (text) => {
       if (!text) return;
@@ -1297,6 +1339,7 @@ class TerminalManager extends BaseComponent {
       .filter(tab => getTerminal(tab.dataset.id)?.project?.id === thisProjectId);
     const thisTab = tabsContainer.querySelector(`.terminal-tab[data-id="${id}"]`);
     const thisIndex = allTabs.indexOf(thisTab);
+    const tabsToLeft = thisIndex > 0 ? allTabs.slice(0, thisIndex) : [];
     const tabsToRight = allTabs.slice(thisIndex + 1);
 
     showContextMenu({
@@ -1327,11 +1370,28 @@ class TerminalManager extends BaseComponent {
           }
         },
         {
+          label: t('tabs.closeToLeft'),
+          icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+          disabled: tabsToLeft.length === 0,
+          onClick: () => {
+            tabsToLeft.forEach(tab => self.closeTerminal(tab.dataset.id));
+          }
+        },
+        {
           label: t('tabs.closeToRight'),
           icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
           disabled: tabsToRight.length === 0,
           onClick: () => {
             tabsToRight.forEach(tab => self.closeTerminal(tab.dataset.id));
+          }
+        },
+        { separator: true },
+        {
+          label: t('tabs.closeAll'),
+          icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+          disabled: allTabs.length === 0,
+          onClick: () => {
+            allTabs.forEach(tab => self.closeTerminal(tab.dataset.id));
           }
         }
       ]
@@ -1653,6 +1713,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    registerOsc52Handler(terminal);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -1741,6 +1802,17 @@ class TerminalManager extends BaseComponent {
         });
       }, RESUME_WATCHDOG_MS);
     }
+
+    // Real keyboard input only — onData also fires for xterm's automatic
+    // replies to terminal queries (device attributes, cursor reports) and for
+    // wheel-scroll sequences, which would stamp restored sessions as
+    // "interacted with" during their resume replay. Direct mutation: read by
+    // polling consumers (Control Tower sort/status), not worth a state
+    // notification per keystroke.
+    terminal.onKey(() => {
+      const td = getTerminal(id);
+      if (td) td.lastInputAt = Date.now();
+    });
 
     terminal.onData(data => {
       self._api.terminal.input({ id, data });
@@ -1930,6 +2002,8 @@ class TerminalManager extends BaseComponent {
     const consoleView = wrapper.querySelector(consoleViewSelector);
     terminal.open(consoleView);
     loadWebglAddon(terminal);
+    // No OSC 52 here on purpose — see registerOsc52Handler: this console pipes
+    // a project server's output, which must not reach the system clipboard.
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -2906,6 +2980,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    registerOsc52Handler(terminal);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -3060,6 +3135,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    registerOsc52Handler(terminal);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -4056,6 +4132,7 @@ class TerminalManager extends BaseComponent {
 
       terminal.open(wrapper);
       loadWebglAddon(terminal);
+      registerOsc52Handler(terminal);
 
       updateTerminal(id, {
         mode: 'terminal',
@@ -4115,6 +4192,11 @@ class TerminalManager extends BaseComponent {
       if (storedTermData) {
         storedTermData.handlers = { unregister: () => self._unregisterTerminalHandler(ptyId) };
       }
+
+      terminal.onKey(() => {
+        const td = getTerminal(id);
+        if (td) td.lastInputAt = Date.now();
+      });
 
       terminal.onData(data => {
         self._api.terminal.input({ id: ptyId, data });
@@ -4518,6 +4600,8 @@ module.exports = {
   showAll: () => _getInstance().showAll(),
   setCallbacks: (cbs) => _getInstance().setCallbacks(cbs),
   updateTerminalStatus: (id, status) => _getInstance().updateTerminalStatus(id, status),
+  getTerminalSubstatus: (id) => _getInstance()._terminalSubstatus.get(id) || null,
+  getTerminalLastTool: (id) => _getInstance()._terminalContext.get(id)?.lastTool || null,
   resumeSession: (project, sessionId, options) => _getInstance().resumeSession(project, sessionId, options),
   updateAllTerminalsTheme: (themeId) => _getInstance().updateAllTerminalsTheme(themeId),
   focusNextTerminal: () => _getInstance().focusNextTerminal(),
