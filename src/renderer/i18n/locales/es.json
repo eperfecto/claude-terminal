@@ -2323,6 +2323,12 @@
     "searchPlaceholder": "Buscar en el documento...",
     "noResults": "Sin resultados"
   },
+  "fileViewer": {
+    "edit": "Editar",
+    "save": "Guardar",
+    "unsavedChangesTitle": "Cambios sin guardar",
+    "unsavedChangesConfirm": "Este archivo tiene cambios sin guardar. ¿Cerrarlo de todas formas?"
+  },
   "pdfViewer": {
     "page": "Página",
     "of": "de",

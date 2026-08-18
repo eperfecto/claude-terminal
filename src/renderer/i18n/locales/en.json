@@ -2326,6 +2326,12 @@
     "searchPlaceholder": "Search in document...",
     "noResults": "No results"
   },
+  "fileViewer": {
+    "edit": "Edit",
+    "save": "Save",
+    "unsavedChangesTitle": "Unsaved changes",
+    "unsavedChangesConfirm": "This file has unsaved changes. Close it anyway?"
+  },
   "pdfViewer": {
     "page": "Page",
     "of": "of",

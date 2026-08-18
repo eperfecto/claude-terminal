@@ -2326,6 +2326,12 @@
     "searchPlaceholder": "Rechercher dans le document...",
     "noResults": "Aucun résultat"
   },
+  "fileViewer": {
+    "edit": "Modifier",
+    "save": "Enregistrer",
+    "unsavedChangesTitle": "Modifications non enregistrées",
+    "unsavedChangesConfirm": "Ce fichier contient des modifications non enregistrées. Le fermer quand même ?"
+  },
   "pdfViewer": {
     "page": "Page",
     "of": "sur",
