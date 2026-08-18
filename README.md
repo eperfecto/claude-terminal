@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-1.2.20-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.2.21-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
@@ -387,6 +387,7 @@ npm install
 ### Other
 - **Session restore**: save and restore full workspace sessions across restarts
 - **File viewers**: integrated .md viewer, PDF viewer, and 3D model viewer (.glb, .gltf, .obj) in the terminal panel
+- **File editing**: edit code, text, and Markdown source files directly from the file viewer and save in place
 - **Dashboard insights**: project health badges and commit heatmap
 - **File explorer watcher**: automatic tree updates on filesystem changes
 - **Tab context menus**: right-click on any tab for quick actions
