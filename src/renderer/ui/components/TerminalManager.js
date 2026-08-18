@@ -1427,7 +1427,7 @@ class TerminalManager extends BaseComponent {
 
   // ── Close terminal ──
 
-  closeTerminal(id) {
+  async closeTerminal(id) {
     const termData = getTerminal(id);
     const closedProjectIndex = termData?.projectIndex;
     const closedProjectPath = termData?.project?.path;
@@ -1436,6 +1436,17 @@ class TerminalManager extends BaseComponent {
     if (termData && termData.type && this._typeConsoleIds.has(`${termData.type}-${closedProjectIndex}`)) {
       this._closeTypeConsole(id, closedProjectIndex, termData.type);
       return;
+    }
+
+    if (termData && termData.type === 'file' && termData.isDirty) {
+      const { showConfirm } = require('./Modal');
+      const confirmed = await showConfirm({
+        title: t('fileViewer.unsavedChangesTitle'),
+        message: t('fileViewer.unsavedChangesConfirm'),
+        confirmLabel: t('common.close'),
+        danger: true,
+      });
+      if (!confirmed) return;
     }
 
     clearOutputSilenceTimer(id);
@@ -1460,6 +1471,7 @@ class TerminalManager extends BaseComponent {
     } else if (termData && termData.type === 'file') {
       if (termData.mdCleanup) termData.mdCleanup();
       if (termData.viewerCleanup) termData.viewerCleanup();
+      if (termData.cmEditor) termData.cmEditor.destroy();
       removeTerminal(id);
     } else {
       this._api.terminal.kill({ id });
@@ -3352,6 +3364,9 @@ class TerminalManager extends BaseComponent {
       header.appendChild(toggleBtn);
 
       toggleBtn.addEventListener('click', () => {
+        // Editing only happens from the source view — block switching views
+        // while the CodeMirror editor is mounted inside it.
+        if (termData.isEditing) return;
         const bodyEl = wrapper.querySelector('.md-viewer-body');
         const sourceEl = wrapper.querySelector('.md-viewer-source');
         if (termData.mdViewMode === 'rendered') {
@@ -3367,6 +3382,9 @@ class TerminalManager extends BaseComponent {
           toggleBtn.classList.remove('active');
           toggleBtn.title = t('mdViewer.toggleSource');
         }
+        // updateEditBtnAvailability lives in the sibling "edit mode" block below —
+        // routed through termData since the two `if` blocks don't share a lexical scope.
+        if (termData._updateEditBtnAvailability) termData._updateEditBtnAvailability();
       });
 
       wrapper.addEventListener('click', (e) => {
@@ -3415,6 +3433,10 @@ class TerminalManager extends BaseComponent {
       const self = this;
       const unsubscribeWatch = this._api.dialog.onFileChanged((changedPath) => {
         if (changedPath !== filePath) return;
+        // Skip reloads caused by our own save — we already hold the fresh
+        // content in memory and just re-rendered it; reloading here would
+        // just flicker the view (or, worse, race a save currently in flight).
+        if (termData.lastOwnWriteAt && Date.now() - termData.lastOwnWriteAt < 1000) return;
         clearTimeout(reloadTimer);
         reloadTimer = setTimeout(async () => {
           try {
@@ -3568,6 +3590,159 @@ class TerminalManager extends BaseComponent {
         searchBar.classList.remove('visible');
         searchInput.value = '';
         wrapper.focus();
+      });
+    }
+
+    // ── Edit mode (plain code/text always; Markdown only from source view) ──
+    if (!isMedia) {
+      const header = wrapper.querySelector('.file-viewer-header');
+      const editBtn = document.createElement('button');
+      editBtn.className = 'file-viewer-edit-btn';
+      const editIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+      const saveIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>`;
+      editBtn.title = t('fileViewer.edit');
+      editBtn.innerHTML = `${editIcon}<span>${t('fileViewer.edit')}</span>`;
+      header.appendChild(editBtn);
+
+      termData.isEditing = false;
+      termData.isDirty = false;
+      termData.cmEditor = null;
+
+      const isEditAllowedNow = () => (isMarkdown ? termData.mdViewMode === 'source' : true);
+
+      const updateEditBtnAvailability = () => {
+        if (!isMarkdown) return;
+        editBtn.style.display = isEditAllowedNow() ? '' : 'none';
+      };
+      // Exposed on termData so the Markdown toggle button's click handler
+      // (declared in a sibling `if` block, outside this closure's scope) can
+      // refresh Edit-button visibility when the view mode changes.
+      termData._updateEditBtnAvailability = updateEditBtnAvailability;
+      updateEditBtnAvailability();
+
+      const updateDirtyIndicator = () => {
+        const nameEl = wrapper.querySelector('.file-viewer-name');
+        if (nameEl) nameEl.classList.toggle('is-dirty', !!termData.isDirty);
+      };
+
+      const getReadOnlyEl = () => (isMarkdown
+        ? wrapper.querySelector(`#md-source-${id} .file-viewer-content`)
+        : wrapper.querySelector('.file-viewer-content'));
+
+      const getEditMountParent = () => (isMarkdown
+        ? wrapper.querySelector(`#md-source-${id}`)
+        : wrapper);
+
+      const renderPlainReadOnly = (text) => {
+        const highlightedContent = highlight(text, ext);
+        const lineNums = text.split('\n').map((_, i) => `<span class="line-num">${i + 1}</span>`).join('\n');
+        const contentEl = wrapper.querySelector('.file-viewer-content');
+        const linesEl = contentEl?.querySelector('.file-viewer-lines');
+        const codeEl = contentEl?.querySelector('.file-viewer-code code');
+        if (linesEl) linesEl.innerHTML = lineNums;
+        if (codeEl) codeEl.innerHTML = highlightedContent;
+      };
+
+      const renderMarkdownReadOnly = (text) => {
+        const bodyEl = wrapper.querySelector(`#md-body-${id}`);
+        if (bodyEl) bodyEl.innerHTML = termData.mdRenderer.parse(text);
+        const tocEl = wrapper.querySelector(`#md-toc-${id}`);
+        if (tocEl) {
+          const tocNav = tocEl.querySelector('.md-toc-nav');
+          if (tocNav) {
+            const newTocHtml = buildMdToc(text);
+            if (newTocHtml) tocNav.outerHTML = newTocHtml;
+          }
+        }
+        const sourceEl = wrapper.querySelector(`#md-source-${id}`);
+        if (sourceEl) {
+          const sourceHighlighted = highlight(text, 'md');
+          const lineNums = text.split('\n').map((_, i) => `<span class="line-num">${i + 1}</span>`).join('\n');
+          const linesEl = sourceEl.querySelector('.file-viewer-lines');
+          const codeEl = sourceEl.querySelector('.file-viewer-code code');
+          if (linesEl) linesEl.innerHTML = lineNums;
+          if (codeEl) codeEl.innerHTML = sourceHighlighted;
+        }
+      };
+
+      const enterEditMode = async () => {
+        if (termData.isEditing || !isEditAllowedNow()) return;
+        termData.isEditing = true;
+        editBtn.classList.add('is-editing');
+        editBtn.title = t('fileViewer.save');
+        editBtn.innerHTML = `${saveIcon}<span>${t('fileViewer.save')}</span>`;
+
+        const readOnlyEl = getReadOnlyEl();
+        if (readOnlyEl) readOnlyEl.style.display = 'none';
+
+        const cmContainer = document.createElement('div');
+        cmContainer.className = 'file-viewer-cm-container';
+        getEditMountParent().appendChild(cmContainer);
+
+        try {
+          // Sibling of renderer.bundle.js, not './dist/...': a dynamic import() in a
+          // classic external script resolves against the SCRIPT url, same convention
+          // as the PDF/3D viewers above.
+          const mod = await import('./codemirror-viewer.bundle.js');
+          if (!termData.isEditing) return; // closed/exited edit mode before load finished
+          const editor = mod.mountEditor(cmContainer, {
+            content,
+            filename: fileName,
+            onSave: () => { saveEdit(); },
+            onChange: (isDirty) => {
+              termData.isDirty = isDirty;
+              updateDirtyIndicator();
+            }
+          });
+          termData.cmEditor = editor;
+          editor.focus();
+        } catch (err) {
+          cmContainer.innerHTML = `<div class="file-viewer-cm-error">${escapeHtml(err.message)}</div>`;
+        }
+      };
+
+      const exitEditModeUI = () => {
+        if (termData.cmEditor) {
+          termData.cmEditor.destroy();
+          termData.cmEditor = null;
+        }
+        wrapper.querySelector('.file-viewer-cm-container')?.remove();
+        const readOnlyEl = getReadOnlyEl();
+        if (readOnlyEl) readOnlyEl.style.display = '';
+        termData.isEditing = false;
+        termData.isDirty = false;
+        editBtn.classList.remove('is-editing');
+        editBtn.title = t('fileViewer.edit');
+        editBtn.innerHTML = `${editIcon}<span>${t('fileViewer.edit')}</span>`;
+        updateDirtyIndicator();
+        updateEditBtnAvailability();
+      };
+
+      const saveEdit = async () => {
+        if (!termData.cmEditor) return;
+        const newContent = termData.cmEditor.getValue();
+        termData.lastOwnWriteAt = Date.now();
+        try {
+          await this._fsp.writeFile(filePath, newContent, 'utf8');
+        } catch (err) {
+          console.error('[TerminalManager] Failed to save file edit:', err);
+          return;
+        }
+        content = newContent;
+        if (isMarkdown) {
+          renderMarkdownReadOnly(content);
+        } else {
+          renderPlainReadOnly(content);
+        }
+        exitEditModeUI();
+      };
+
+      editBtn.addEventListener('click', () => {
+        if (termData.isEditing) {
+          saveEdit();
+        } else {
+          enterEditMode();
+        }
       });
     }
 

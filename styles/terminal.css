@@ -1795,6 +1795,78 @@
   font-size: inherit;
 }
 
+/* Edit button (plain code/text always; Markdown only from source view) */
+.file-viewer-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.file-viewer-edit-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+.file-viewer-edit-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.file-viewer-edit-btn.is-editing {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--accent-dim);
+}
+
+/* Unsaved-changes indicator next to the file name */
+.file-viewer-name.is-dirty::after {
+  content: '\25CF';
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 8px;
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+/* CodeMirror 6 mount container — fills the same space as .file-viewer-content */
+.file-viewer-cm-container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  background: var(--bg-primary);
+}
+
+.file-viewer-cm-container .cm-editor {
+  flex: 1;
+  height: 100%;
+  outline: none;
+}
+
+.file-viewer-cm-container .cm-scroller {
+  overflow: auto;
+}
+
+.file-viewer-cm-error {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--danger);
+  font-size: var(--font-sm);
+  padding: 24px;
+  text-align: center;
+}
+
 /* Media preview (images, video, audio) */
 .file-viewer-media {
   flex: 1;

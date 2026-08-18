@@ -75,6 +75,17 @@ const threeViewerBuildOptions = {
   minify: true,
 };
 
+// CodeMirror 6 viewer bundle (ESM, lazy-loaded when entering edit mode)
+const codemirrorViewerBuildOptions = {
+  entryPoints: [path.join(__dirname, '..', 'src', 'renderer', 'viewers', 'codemirror-viewer.js')],
+  bundle: true,
+  outfile: path.join(__dirname, '..', 'dist', 'codemirror-viewer.bundle.js'),
+  format: 'esm',
+  platform: 'browser',
+  target: 'chrome120',
+  minify: true,
+};
+
 // CSS bundle (all 27 stylesheets into one minified file)
 const cssBuildOptions = {
   entryPoints: [path.join(__dirname, '..', 'styles', 'index.css')],
@@ -114,6 +125,7 @@ async function build() {
         esbuild.build(katexBuildOptions),
         esbuild.build(pdfViewerBuildOptions),
         esbuild.build(threeViewerBuildOptions),
+        esbuild.build(codemirrorViewerBuildOptions),
         esbuild.build(cssBuildOptions),
       ]);
       // Copy pdf.js worker to dist/ for runtime loading
@@ -123,7 +135,7 @@ async function build() {
 
       copyLazyLocales();
 
-      console.log('Build complete: dist/renderer.bundle.js + dist/mermaid.bundle.js + dist/katex.bundle.js + dist/pdf-viewer.bundle.js + dist/three-viewer.bundle.js + dist/styles.bundle.css + dist/pdf.worker.min.mjs + dist/locales/{' + LAZY_LOCALES.join(',') + '}.json');
+      console.log('Build complete: dist/renderer.bundle.js + dist/mermaid.bundle.js + dist/katex.bundle.js + dist/pdf-viewer.bundle.js + dist/three-viewer.bundle.js + dist/codemirror-viewer.bundle.js + dist/styles.bundle.css + dist/pdf.worker.min.mjs + dist/locales/{' + LAZY_LOCALES.join(',') + '}.json');
     }
   } catch (error) {
     console.error('Build failed:', error);
