@@ -201,6 +201,9 @@ let diffMode = 'unified'; // 'unified' | 'sidebyside'
 // Branch search filter
 let branchSearchQuery = '';
 
+// Git-tab projects sidebar search filter
+let gitProjectsSearchQuery = '';
+
 // ========== HELPERS ==========
 function escapeAttr(str) {
   return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
@@ -385,6 +388,41 @@ function renderProjectsList() {
   const list = document.getElementById('git-projects-list');
   if (!list) return;
 
+  // Projects search filter
+  const searchContainer = document.getElementById('git-projects-search');
+  if (searchContainer && !searchContainer.dataset.initialized) {
+    searchContainer.dataset.initialized = 'true';
+    searchContainer.innerHTML = `
+      <div class="git-projects-search-box">
+        <svg class="git-projects-search-icon" viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" class="git-projects-search-input" id="git-projects-search-input" placeholder="${escapeAttr(t('gitTab.searchProjects'))}" autocomplete="off" spellcheck="false">
+        <button class="git-projects-search-clear" id="git-projects-search-clear" style="display:none">&times;</button>
+      </div>
+    `;
+    const input = searchContainer.querySelector('#git-projects-search-input');
+    const clearBtn = searchContainer.querySelector('#git-projects-search-clear');
+    let debounceTimer;
+    input?.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        gitProjectsSearchQuery = input.value.trim().toLowerCase();
+        renderProjectsList();
+      }, 150);
+    });
+    clearBtn?.addEventListener('click', () => {
+      gitProjectsSearchQuery = '';
+      renderProjectsList();
+    });
+  }
+
+  // Restore search input value + clear button visibility
+  const searchInput = document.getElementById('git-projects-search-input');
+  if (searchInput && searchInput.value !== gitProjectsSearchQuery) {
+    searchInput.value = gitProjectsSearchQuery;
+  }
+  const clearBtn = document.getElementById('git-projects-search-clear');
+  if (clearBtn) clearBtn.style.display = gitProjectsSearchQuery ? '' : 'none';
+
   const state = projectsState.get();
   const { projects, folders, rootOrder } = state;
 
@@ -393,10 +431,15 @@ function renderProjectsList() {
     return;
   }
 
+  const query = gitProjectsSearchQuery;
+  const matchesProject = (project) => !query
+    || project.name.toLowerCase().includes(query)
+    || (project.path || '').toLowerCase().includes(query);
+
   function renderFolderItem(folder, depth) {
     const indent = depth * 16;
     const projectCount = countFolderProjects(folder, folders, projects);
-    const isCollapsed = folder.collapsed;
+    const isCollapsed = query ? false : folder.collapsed;
 
     const folderIcon = folder.icon
       ? `<span class="git-folder-emoji">${folder.icon}</span>`
@@ -417,6 +460,9 @@ function renderProjectsList() {
       }
     }
 
+    const folderNameMatches = query && folder.name.toLowerCase().includes(query);
+    if (query && !childrenHtml && !folderNameMatches) return '';
+
     return `<div class="git-folder-item" data-folder-id="${escapeAttr(folder.id)}">
       <div class="git-folder-header" style="padding-left:${8 + indent}px">
         <span class="git-folder-chevron ${isCollapsed ? 'collapsed' : ''}">
@@ -434,6 +480,7 @@ function renderProjectsList() {
   }
 
   function renderProjectItem(project, depth) {
+    if (!matchesProject(project)) return '';
     const indent = depth * 16;
     const isActive = selectedProjectId === project.id;
 
