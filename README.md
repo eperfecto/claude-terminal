@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-1.2.22-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.3.0-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
@@ -187,6 +187,7 @@ npm install
 - Per-project settings modal
 
 ### Git Integration
+- **Project search**: filter the Git tab's project sidebar by name/path, auto-expanding matching folders
 - **Branches**: switch, create, delete with tree view of local/remote branches
 - **Sync**: pull (rebase), push, merge with conflict detection and resolution
 - **Changes panel**: view staged/unstaged/untracked files, stage/unstage and commit
