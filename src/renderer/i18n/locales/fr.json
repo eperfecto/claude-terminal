@@ -497,6 +497,7 @@
     "confirmCloseIssue": "Fermer l'issue #{number} ?",
     "issueClosed": "Issue #{number} fermée",
     "searchBranches": "Rechercher des branches...",
+    "searchProjects": "Rechercher des projets...",
     "ours": "Notre",
     "theirs": "La leur",
     "resolveOurs": "Garder notre version",

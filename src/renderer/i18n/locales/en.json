@@ -402,6 +402,7 @@
     "confirmCloseIssue": "Close issue #{number}?",
     "issueClosed": "Issue #{number} closed",
     "searchBranches": "Search branches...",
+    "searchProjects": "Search projects...",
     "ours": "Ours",
     "theirs": "Theirs",
     "resolveOurs": "Keep our version",

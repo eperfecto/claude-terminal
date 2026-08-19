@@ -345,6 +345,7 @@
     "noProjects": "Sin proyectos",
     "pruneWorktrees": "Limpiar worktrees obsoletos",
     "searchBranches": "Buscar ramas...",
+    "searchProjects": "Buscar proyectos...",
     "ours": "Nuestra",
     "theirs": "La suya",
     "resolveOurs": "Mantener nuestra versión",
