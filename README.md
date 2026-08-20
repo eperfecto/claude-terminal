@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-1.3.0-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.4.0-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
@@ -297,6 +297,7 @@ npm install
 - Template insertion for common patterns
 
 ### Settings
+- **Chat font size**: adjust the text size in the Chat UI only (Small, Default, Large, Extra large); the terminal font is unaffected
 - Accent color theming (preset palettes + custom hex)
 - Per-agent and per-tool color customization for chat tool cards
 - Language: English, French, and Spanish with auto-detection
