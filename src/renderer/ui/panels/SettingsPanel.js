@@ -1124,6 +1124,26 @@ class SettingsPanel extends BasePanel {
             <div class="settings-group">
               <div class="settings-group-title">${t('settings.terminalGroup')}</div>
               <div class="settings-card">
+                <div class="settings-row">
+                  <div class="settings-label">
+                    <div>${t('settings.chatFontSize')}</div>
+                    <div class="settings-desc">${t('settings.chatFontSizeDesc')}</div>
+                  </div>
+                  <div class="settings-dropdown" id="chat-font-size-dropdown" data-value="${settings.chatFontSize || 14}">
+                    <div class="settings-dropdown-trigger">
+                      <span>${[{v:12,l:t('settings.chatFontSizeSmall')},{v:14,l:t('settings.chatFontSizeDefault')},{v:16,l:t('settings.chatFontSizeLarge')},{v:18,l:t('settings.chatFontSizeXLarge')}].find(o => o.v === (settings.chatFontSize || 14))?.l || t('settings.chatFontSizeDefault')}</span>
+                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                    </div>
+                    <div class="settings-dropdown-menu">
+                      ${[{v:12,l:t('settings.chatFontSizeSmall')},{v:14,l:t('settings.chatFontSizeDefault')},{v:16,l:t('settings.chatFontSizeLarge')},{v:18,l:t('settings.chatFontSizeXLarge')}].map(o =>
+                        `<div class="settings-dropdown-option ${(settings.chatFontSize || 14) === o.v ? 'selected' : ''}" data-value="${o.v}">
+                          <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+                          ${o.l}
+                        </div>`
+                      ).join('')}
+                    </div>
+                  </div>
+                </div>
                 <div class="settings-toggle-row">
                   <div class="settings-toggle-label">
                     <div>${t('settings.showTabModeToggle')}</div>
@@ -1795,6 +1815,8 @@ class SettingsPanel extends BasePanel {
       const languageDropdown = document.getElementById('language-dropdown');
       const newTerminalTheme = selectedThemeCard?.dataset.themeId || 'claude';
       const newLanguage = languageDropdown?.dataset.value || getCurrentLanguage();
+      const chatFontSizeDropdown = document.getElementById('chat-font-size-dropdown');
+      const newChatFontSize = parseInt(chatFontSizeDropdown?.dataset.value, 10) || settings.chatFontSize || 14;
 
       let accentColor = settings.accentColor;
       const selectedSwatch = container.querySelector('.color-swatch.selected');
@@ -1890,6 +1912,7 @@ class SettingsPanel extends BasePanel {
         closeAction: closeActionDropdown?.dataset.value || 'ask',
         terminalTheme: newTerminalTheme,
         language: newLanguage,
+        chatFontSize: newChatFontSize,
         compactProjects: newCompactProjects,
         activeProjectsFirst: newActiveProjectsFirst,
         hideProjectIcons: newHideProjectIcons,
@@ -1949,6 +1972,7 @@ class SettingsPanel extends BasePanel {
       document.body.classList.toggle('reduce-motion', newReduceMotion);
       document.body.classList.toggle('hide-tab-mode-toggle', !newShowTabModeToggle);
       self._ctx.applyAccentColor(newSettings.accentColor);
+      self._ctx.applyChatFontSize(newChatFontSize);
 
       if (newTerminalTheme !== settings.terminalTheme) {
         self._ctx.TerminalManager.updateAllTerminalsTheme(newTerminalTheme);
@@ -2124,6 +2148,7 @@ class SettingsPanel extends BasePanel {
           self._ctx.settingsState.set(merged);
           self._ctx.saveSettingsImmediate();
           self._ctx.applyAccentColor(merged.accentColor);
+          self._ctx.applyChatFontSize(merged.chatFontSize || 14);
 
           const { showSuccess } = require('../components/Toast');
           showSuccess(t('settings.importSuccess'));

@@ -13,6 +13,15 @@
   background: var(--bg-primary);
   overflow: hidden;
   position: relative;
+  /* Scoped font-size override: only Chat UI reads --chat-font-scale (set via
+     Settings > Claude > Chat font size). Terminal and the rest of the app
+     keep reading --font-* from :root and stay unaffected. */
+  --font-2xs: calc(0.625rem * var(--chat-font-scale, 1));
+  --font-xs: calc(0.6875rem * var(--chat-font-scale, 1));
+  --font-sm: calc(0.8125rem * var(--chat-font-scale, 1));
+  --font-base: calc(0.875rem * var(--chat-font-scale, 1));
+  --font-md: calc(1rem * var(--chat-font-scale, 1));
+  --font-lg: calc(1.125rem * var(--chat-font-scale, 1));
 }
 
 /* ── Session tab bar (Conversation / Changes) ── */

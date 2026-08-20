@@ -98,6 +98,18 @@ function applyAccentColor(color) {
 }
 
 /**
+ * Apply the chat UI font size by scaling the --font-* custom properties
+ * that .chat-view overrides for its own subtree (see styles/chat.css).
+ * Terminal and the rest of the app read --font-* from :root and are unaffected.
+ * @param {number} px - Base font size in px (matches --font-base, default 14)
+ */
+function applyChatFontSize(px) {
+  const size = Number(px) || 14;
+  const root = document.documentElement;
+  root.style.setProperty('--chat-font-scale', String(size / 14));
+}
+
+/**
  * Predefined accent color palette
  */
 const ACCENT_COLORS = [
@@ -135,6 +147,7 @@ module.exports = {
   lightenColor,
   darkenColor,
   applyAccentColor,
+  applyChatFontSize,
   sanitizeColor,
   ACCENT_COLORS
 };

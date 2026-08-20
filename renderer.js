@@ -21,6 +21,7 @@ const {
   // Utils
   escapeHtml,
   applyAccentColor,
+  applyChatFontSize,
   ensureDirectories,
   dataDir,
   skillsDir,
@@ -300,6 +301,7 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   });
   updateStaticTranslations(); // Apply translations to static HTML elements
   applyAccentColor(settingsState.get().accentColor || '#d97706');
+  applyChatFontSize(settingsState.get().chatFontSize || 14);
   if (settingsState.get().compactProjects !== false) {
     document.body.classList.add('compact-projects');
   }
@@ -327,7 +329,7 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   SettingsPanel.init({
     api, settingsState, saveSettings, saveSettingsImmediate,
     showToast, showModal, closeModal,
-    applyAccentColor, TerminalManager, TERMINAL_THEMES,
+    applyAccentColor, applyChatFontSize, TerminalManager, TERMINAL_THEMES,
     QuickActions, TimeTrackingDashboard, ShortcutsManager
   });
 

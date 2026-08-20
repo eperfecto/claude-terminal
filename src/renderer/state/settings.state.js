@@ -31,6 +31,7 @@ const defaultSettings = {
   hooksEnabled: false, // Hooks installed in ~/.claude/settings.json
   hooksConsentShown: false, // User has seen the hooks consent prompt
   chatModel: null, // null = CLI default, or model ID string (e.g. 'claude-sonnet-4-6')
+  chatFontSize: 14, // Chat UI font size in px (default 14, matches --font-base). Only affects Chat UI, not the terminal.
   enable1MContext: false, // Enable 1M token context window via betas flag
   effortLevel: 'high', // Effort level for chat sessions: low, medium, high, xhigh, max
   remoteEnabled: false, // Enable remote control via mobile PWA
