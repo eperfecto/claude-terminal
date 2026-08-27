@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-1.4.0-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.5.0-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
@@ -185,6 +185,7 @@ npm install
 - Built-in file explorer with tree view, multi-select, search, git status indicators, and inline rename; right-click any file to attach it as context in the current chat
 - Modular project type system (standard, FiveM, webapp, Python, API, Minecraft)
 - Per-project settings modal
+- **Active projects section**: any project with an open terminal tab (Claude session or plain shell) is pinned to the top of the list
 
 ### Git Integration
 - **Project search**: filter the Git tab's project sidebar by name/path, auto-expanding matching folders
