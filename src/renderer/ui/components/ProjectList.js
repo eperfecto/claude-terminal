@@ -46,7 +46,7 @@ const {
   // Quick actions
   getQuickActions,
   // Active Claude sessions
-  getProjectIdsWithClaudeSession,
+  getProjectIdsWithOpenSession,
 } = require('../../state');
 const { escapeHtml } = require('../../utils');
 const { sanitizeColor } = require('../../utils/color');
@@ -1349,12 +1349,12 @@ class ProjectList extends BaseComponent {
       html += `</div>`;
     }
 
-    // Projects with an open Claude session are hoisted into a flat section on top
-    // and skipped in the tree below. This is a render-time projection only: rootOrder,
-    // folder children and folderId are never touched, so closing the last session puts
-    // the project back exactly where it was.
+    // Projects with an open terminal tab (Claude session or plain shell) are hoisted
+    // into a flat section on top and skipped in the tree below. This is a render-time
+    // projection only: rootOrder, folder children and folderId are never touched, so
+    // closing the last tab puts the project back exactly where it was.
     const activeProjects = getSetting('activeProjectsFirst')
-      ? getProjectIdsWithClaudeSession()
+      ? getProjectIdsWithOpenSession()
           .map(projectId => getProject(projectId))
           .filter(project => project && this._passesFilters(project, searchQuery))
       : [];

@@ -22,7 +22,7 @@ const {
   deriveTabStatus,
   appendTerminalOutput,
   appendChatMessage,
-  getProjectIdsWithClaudeSession,
+  getProjectIdsWithOpenSession,
 } = require('../../src/renderer/state/terminals.state');
 
 function resetState() {
@@ -760,9 +760,9 @@ describe('phase 2 — readOutputForTab cursor pagination', () => {
   });
 });
 
-// ── getProjectIdsWithClaudeSession ──
+// ── getProjectIdsWithOpenSession ──
 
-describe('getProjectIdsWithClaudeSession', () => {
+describe('getProjectIdsWithOpenSession', () => {
   // Helper mirroring the real termData shape built in TerminalManager.
   function claudeTab(projectId, createdAt, extra = {}) {
     return {
@@ -775,74 +775,74 @@ describe('getProjectIdsWithClaudeSession', () => {
   }
 
   test('returns an empty array when there are no terminals', () => {
-    expect(getProjectIdsWithClaudeSession()).toEqual([]);
+    expect(getProjectIdsWithOpenSession()).toEqual([]);
   });
 
   test('includes a project with a Claude terminal tab', () => {
     addTerminal(1, claudeTab('p1', '2026-01-01T10:00:00.000Z'));
-    expect(getProjectIdsWithClaudeSession()).toEqual(['p1']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['p1']);
   });
 
   test('includes a project with a chat tab', () => {
     addTerminal(1, claudeTab('p1', '2026-01-01T10:00:00.000Z', { mode: 'chat', terminal: null }));
-    expect(getProjectIdsWithClaudeSession()).toEqual(['p1']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['p1']);
   });
 
-  test('excludes basic (non-Claude) terminals', () => {
+  test('includes a project with a plain (non-Claude) terminal', () => {
     addTerminal(1, claudeTab('p1', '2026-01-01T10:00:00.000Z', { isBasic: true }));
-    expect(getProjectIdsWithClaudeSession()).toEqual([]);
+    expect(getProjectIdsWithOpenSession()).toEqual(['p1']);
   });
 
   test('excludes fivem, webapp and file service tabs', () => {
     addTerminal(1, claudeTab('p1', '2026-01-01T10:00:00.000Z', { type: 'fivem' }));
     addTerminal(2, claudeTab('p2', '2026-01-01T10:00:01.000Z', { type: 'webapp' }));
     addTerminal(3, claudeTab('p3', '2026-01-01T10:00:02.000Z', { type: 'file' }));
-    expect(getProjectIdsWithClaudeSession()).toEqual([]);
+    expect(getProjectIdsWithOpenSession()).toEqual([]);
   });
 
   test('deduplicates two tabs of the same project', () => {
     addTerminal(1, claudeTab('p1', '2026-01-01T10:00:00.000Z'));
     addTerminal(2, claudeTab('p1', '2026-01-01T10:00:05.000Z'));
-    expect(getProjectIdsWithClaudeSession()).toEqual(['p1']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['p1']);
   });
 
   test('resolves parentProjectId over project.id (worktree and chat tabs)', () => {
     addTerminal(1, claudeTab('worktree-child', '2026-01-01T10:00:00.000Z', {
       parentProjectId: 'parent'
     }));
-    expect(getProjectIdsWithClaudeSession()).toEqual(['parent']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['parent']);
   });
 
   test('ignores terminals with no resolvable project id', () => {
     addTerminal(1, { isBasic: false, mode: 'terminal', createdAt: '2026-01-01T10:00:00.000Z' });
-    expect(getProjectIdsWithClaudeSession()).toEqual([]);
+    expect(getProjectIdsWithOpenSession()).toEqual([]);
   });
 
   test('orders projects by createdAt descending (most recent session first)', () => {
     addTerminal(1, claudeTab('blog', '2026-01-01T10:00:00.000Z'));
     addTerminal(2, claudeTab('api', '2026-01-01T11:00:00.000Z'));
     addTerminal(3, claudeTab('dashboard', '2026-01-01T12:00:00.000Z'));
-    expect(getProjectIdsWithClaudeSession()).toEqual(['dashboard', 'api', 'blog']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['dashboard', 'api', 'blog']);
   });
 
   test('a newer tab lifts its project back to the top', () => {
     addTerminal(1, claudeTab('blog', '2026-01-01T10:00:00.000Z'));
     addTerminal(2, claudeTab('api', '2026-01-01T11:00:00.000Z'));
     addTerminal(3, claudeTab('blog', '2026-01-01T12:00:00.000Z'));
-    expect(getProjectIdsWithClaudeSession()).toEqual(['blog', 'api']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['blog', 'api']);
   });
 
   test('falls back to insertion order when createdAt is missing', () => {
     addTerminal(1, claudeTab('first', undefined));
     addTerminal(2, claudeTab('second', undefined));
-    expect(getProjectIdsWithClaudeSession()).toEqual(['second', 'first']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['second', 'first']);
   });
 
   test('drops a project once its last Claude tab is closed', () => {
     addTerminal(1, claudeTab('p1', '2026-01-01T10:00:00.000Z'));
     addTerminal(2, claudeTab('p2', '2026-01-01T11:00:00.000Z'));
     removeTerminal(1);
-    expect(getProjectIdsWithClaudeSession()).toEqual(['p2']);
+    expect(getProjectIdsWithOpenSession()).toEqual(['p2']);
   });
 });
 

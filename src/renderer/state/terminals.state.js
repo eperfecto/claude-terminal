@@ -168,20 +168,20 @@ function getTerminalStatsForProject(projectIndex) {
 }
 
 /**
- * Project ids that currently have at least one open Claude session (Claude
- * terminal tab or chat tab), ordered with the most recently started first.
- * Basic shells and service consoles (fivem/webapp/file) don't count.
+ * Project ids that currently have at least one open terminal tab (Claude
+ * session, chat tab, or plain shell), ordered with the most recently
+ * started first. Service consoles (fivem/webapp/file) don't count.
  *
  * Worktree and chat tabs carry the owning project in parentProjectId, so it
  * takes precedence over the project object attached to the tab.
  * @returns {string[]}
  */
-function getProjectIdsWithClaudeSession() {
+function getProjectIdsWithOpenSession() {
   const newestByProject = new Map();
   let seq = 0;
   const terminals = terminalsState.get().terminals;
   terminals.forEach(term => {
-    if (!term || term.isBasic) return;
+    if (!term) return;
     if (term.type === 'fivem' || term.type === 'webapp' || term.type === 'file') return;
     const projectId = term.parentProjectId || (term.project && term.project.id);
     if (!projectId) return;
@@ -375,7 +375,7 @@ module.exports = {
   getDetailTerminal,
   countTerminalsForProject,
   getTerminalStatsForProject,
-  getProjectIdsWithClaudeSession,
+  getProjectIdsWithOpenSession,
   getTerminalsForProject,
   killTerminalsForProject,
   clearAllTerminals,

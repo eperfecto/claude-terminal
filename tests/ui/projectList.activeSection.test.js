@@ -1,9 +1,9 @@
 /**
- * Rendering tests for the "active Claude sessions" section of the project list.
+ * Rendering tests for the "active sessions" section of the project list.
  *
- * The section is a render-time projection: projects with an open Claude session are
- * hoisted into a flat block on top and skipped in the tree, while rootOrder and the
- * folder hierarchy stay untouched.
+ * The section is a render-time projection: projects with an open terminal tab
+ * (Claude session or plain shell) are hoisted into a flat block on top and
+ * skipped in the tree, while rootOrder and the folder hierarchy stay untouched.
  */
 
 const { ProjectList } = require('../../src/renderer/ui/components/ProjectList');
@@ -136,13 +136,13 @@ describe('active sessions section', () => {
     expect(document.querySelector('.active-projects-count').textContent.trim()).toBe('2');
   });
 
-  test('ignores basic terminals', () => {
+  test('hoists a project with only a basic (non-Claude) terminal', () => {
     addTerminal(1, { ...claudeTab('blog', '2026-01-01T10:00:00.000Z'), isBasic: true });
 
     new ProjectList()._renderNow();
 
-    expect(list.querySelector('.active-projects-section')).toBeNull();
-    expect(idsInTree()).toEqual(['blog', 'api', 'dashboard']);
+    expect(idsIn('.active-projects-section')).toEqual(['blog']);
+    expect(idsInTree()).toEqual(['api', 'dashboard']);
   });
 
   test('returns the project to its exact tree position when the session closes', () => {
