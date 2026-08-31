@@ -42,6 +42,8 @@
     "noProjects": "No projects",
     "addHint": "Click + to add one",
     "openFolder": "Open folder",
+    "copyPath": "Copy path",
+    "pathCopied": "Path copied to clipboard",
     "openInEditor": "Open in {editor}",
     "openInEditorFailed": "Could not open {editor}. Make sure it is installed and available in your PATH.",
     "changeEditor": "Change editor",

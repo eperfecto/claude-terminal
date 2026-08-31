@@ -42,6 +42,8 @@
     "noProjects": "Aucun projet",
     "addHint": "Cliquez sur + pour ajouter",
     "openFolder": "Ouvrir le dossier",
+    "copyPath": "Copier le chemin",
+    "pathCopied": "Chemin copié dans le presse-papiers",
     "openInEditor": "Ouvrir dans {editor}",
     "openInEditorFailed": "Impossible d'ouvrir {editor}. Vérifiez qu'il est installé et disponible dans le PATH.",
     "changeEditor": "Changer l'éditeur",
