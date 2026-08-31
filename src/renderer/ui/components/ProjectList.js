@@ -421,6 +421,10 @@ class ProjectList extends BaseComponent {
       ${menuIcons.folderOpen}
       ${t('projects.openFolder')}
     </button>
+    <button class="more-actions-item btn-copy-path" data-project-id="${project.id}">
+      ${menuIcons.copy}
+      ${t('projects.copyPath')}
+    </button>
     <button class="more-actions-item btn-open-editor" data-project-id="${project.id}">
       ${menuIcons.code}
       ${t('projects.openInEditor', { editor: (EDITOR_OPTIONS.find(e => e.value === (getProjectEditor(project.id) || getSetting('editor'))) || EDITOR_OPTIONS[0]).label })}
@@ -928,6 +932,12 @@ class ProjectList extends BaseComponent {
         } else if (btn.classList.contains('btn-open-folder')) {
           const project = getProject(projectId);
           if (project) self._api.dialog.openInExplorer(project.path);
+        } else if (btn.classList.contains('btn-copy-path')) {
+          const project = getProject(projectId);
+          if (!project) return;
+          self.closeAllMoreActionsMenus();
+          self._api.app.clipboardWrite(project.path);
+          Toast.showToast({ message: t('projects.pathCopied'), type: 'success' });
         } else if (btn.classList.contains('btn-open-editor')) {
           const project = getProject(projectId);
           if (!project) return;
