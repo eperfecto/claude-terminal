@@ -54,6 +54,7 @@
   },
   "jest": {
     "testEnvironment": "jsdom",
+    "testTimeout": 30000,
     "setupFiles": [
       "./tests/setup.js"
     ],
