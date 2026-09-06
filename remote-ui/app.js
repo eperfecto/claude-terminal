@@ -643,6 +643,21 @@ function _onDesktopOffline() {
   }
 }
 
+/**
+ * The name the cloud API answers to for a project.
+ *
+ * _fetchCloudProjects stores the server's canonical key in `path` and the
+ * human-facing displayName in `name`. Every cloud endpoint addresses a project
+ * by that key, so passing `name` fails with `Project "<displayName>" does not
+ * exist`. Desktop projects keep their previous behaviour: their `path` is a
+ * filesystem path, not a server key.
+ */
+function _cloudProjectName(project) {
+  if (!project) return '';
+  if (project._cloud) return project.path || '';
+  return project.name || project.path?.split(/[\\/]/).pop() || '';
+}
+
 async function _fetchCloudProjects() {
   if (!conn.cloudUrl || !conn.cloudApiKey) return;
   const base = conn.cloudUrl.replace(/\/$/, '');
@@ -1646,7 +1661,7 @@ function requestPastSessions(projectId) {
   if (conn.cloudUrl && conn.cloudApiKey) {
     const project = state.projects.find(p => p.id === projectId);
     if (!project) return;
-    const projectName = project.name || project.path?.split(/[\\/]/).pop() || '';
+    const projectName = _cloudProjectName(project);
     _fetchCloudPastSessions(projectId, projectName);
   }
 }
@@ -1685,7 +1700,7 @@ function resumePastSession(sessionId, projectId) {
 
   // Cloud/headless mode: resume via cloud API
   if (state.desktopOffline && conn.cloudUrl && conn.cloudApiKey) {
-    const projectName = project.name || project.path?.split(/[\\/]/).pop() || '';
+    const projectName = _cloudProjectName(project);
     _startHeadlessSession(projectName, 'Continue from where we left off.', sessionId).catch(() => {
       // Restore card on failure (banner already shows error via _startHeadlessSession)
       if (card) {
@@ -2624,7 +2639,7 @@ function sendMessage() {
   if (state.desktopOffline && conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
     const project = state.projects.find(p => p.id === state.selectedProjectId);
     if (!project) return;
-    const projectName = project.name || project.path?.split(/[\\/]/).pop() || '';
+    const projectName = _cloudProjectName(project);
     input.value = '';
     input.style.height = 'auto';
     _clearImageAfterSend();
@@ -3557,4 +3572,10 @@ function _cleanupHeadlessSession() {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-init();
+// A CommonJS test runner has no browser to boot, so expose the pure helpers
+// instead — they get exercised against this implementation, not a copy of it.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { _cloudProjectName };
+} else {
+  init();
+}
