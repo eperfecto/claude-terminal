@@ -247,7 +247,7 @@ function buildHtml(settings) {
 
 function setupHandlers(context) {
   _ctx = context;
-  const { settings, saveSettings } = context;
+  const { settingsState, saveSettings } = context;
   const api = window.electron_api;
   if (!api?.cloud) return;
 
@@ -291,19 +291,23 @@ function setupHandlers(context) {
 
     if (connectError) connectError.style.display = 'none';
 
-    // Save settings
-    settings.cloudServerUrl = serverUrl;
-    settings.cloudApiKey = apiKey;
-    settings.cloudAutoConnect = autoConnect;
-    saveSettings(settings);
+    // Persist through the state module. saveSettings() takes no argument: it
+    // writes whatever settingsState currently holds, so the state has to be
+    // updated first.
+    settingsState.set({
+      cloudServerUrl: serverUrl,
+      cloudApiKey: apiKey,
+      cloudAutoConnect: autoConnect,
+    });
+    saveSettings();
 
     await api.cloud.connect({ serverUrl, apiKey });
   }
 
   async function doDisconnect() {
     await api.cloud.disconnect();
-    settings.cloudAutoConnect = false;
-    saveSettings(settings);
+    settingsState.setProp('cloudAutoConnect', false);
+    saveSettings();
     setView(false);
   }
 
@@ -670,14 +674,14 @@ function setupHandlers(context) {
         } else {
           await api.cloud.syncStop();
         }
-        settings.cloudAutoSync = enabled;
-        saveSettings(settings);
+        settingsState.setProp('cloudAutoSync', enabled);
+        saveSettings();
       } catch (err) {
         // Revert both the checkbox and the persisted setting to the real state.
         const reverted = !enabled;
         syncAutoToggle.checked = reverted;
-        settings.cloudAutoSync = reverted;
-        saveSettings(settings);
+        settingsState.setProp('cloudAutoSync', reverted);
+        saveSettings();
         _toastError(enabled ? 'cloud.syncStartError' : 'cloud.syncStopError', err);
       } finally {
         syncAutoToggle.disabled = false;
@@ -688,8 +692,8 @@ function setupHandlers(context) {
   // Per-entity toggles
   document.querySelectorAll('[data-sync-key]').forEach(toggle => {
     toggle.addEventListener('change', () => {
-      settings[toggle.dataset.syncKey] = toggle.checked;
-      saveSettings(settings);
+      settingsState.setProp(toggle.dataset.syncKey, toggle.checked);
+      saveSettings();
     });
   });
 
