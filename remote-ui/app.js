@@ -2749,8 +2749,38 @@ function _clearImageAfterSend() {
   if (bar) bar.classList.add('hidden');
 }
 
+/**
+ * Stop a headless cloud turn through the cloud API.
+ *
+ * Same rule as the relay path: only report the turn as stopped once the server
+ * confirms it, or the input lies about a turn that is still running.
+ */
+async function _interruptHeadlessSession() {
+  const base = conn.cloudUrl.replace(/\/$/, '');
+  try {
+    const resp = await fetch(`${base}/api/sessions/${encodeURIComponent(state._headlessSessionId)}/interrupt`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    setInputState('idle');
+  } catch {
+    _flashSendFailure();
+  }
+}
+
 function interruptSession() {
   if (!state.selectedSessionId) return;
+
+  // A headless cloud session has no desktop behind it, so its interrupt belongs
+  // to the cloud API. Routing it over the relay would send a privileged
+  // `chat:interrupt`, and wsSend answers those without a relay token by
+  // prompting for the desktop PIN — a login screen mid-chat.
+  if (state.cloudSessionMode && state._headlessSessionId && conn.cloudUrl && conn.cloudApiKey) {
+    _interruptHeadlessSession();
+    return;
+  }
+
   // Only flip back to idle if the interrupt actually reached the desktop —
   // otherwise the turn is still running and the UI would be lying.
   if (wsSend('chat:interrupt', { sessionId: state.selectedSessionId })) {
@@ -3575,7 +3605,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName };
+  module.exports = { _cloudProjectName, interruptSession, state, conn };
 } else {
   init();
 }
