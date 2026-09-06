@@ -65,6 +65,7 @@ const EFFORT_OPTIONS = [
 
 const state = {
   projects: [],
+  projectFilter: '',      // live text from the project search box
   folders: [],
   rootOrder: [],
   collapsedFolders: JSON.parse(localStorage.getItem('remote_collapsed_folders') || '{}'),
@@ -183,6 +184,7 @@ function init() {
   setupPinEntry();
   setupCloudKeyEntry();
   setupNavigation();
+  setupProjectSearch();
   setupChatInput();
   setupPlusMenu();
   _setupImageInputs();
@@ -1430,6 +1432,15 @@ function _scrollToBottom(container) {
 const GLOBAL_VIEWS = ['projects', 'chat', 'control', 'dashboard'];
 const PROJECT_VIEWS = ['sessions', 'git'];
 
+function setupProjectSearch() {
+  const input = $('projects-search');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    state.projectFilter = input.value;
+    renderProjectsList();
+  });
+}
+
 function setupNavigation() {
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => { navigator.vibrate?.(10); switchView(btn.dataset.view); });
@@ -1894,23 +1905,49 @@ function _renderItem(itemId, depth, visited = new Set()) {
   return '';
 }
 
+/**
+ * Narrow the project list by a search query.
+ *
+ * Plain case-insensitive substring: cloud project names are server directory
+ * names, restricted to [A-Za-z0-9._-], so there is nothing to normalise. An
+ * empty query returns the original array by reference — callers rely on that to
+ * keep the untouched hierarchical render path.
+ */
+function _filterProjects(projects, query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return projects;
+  return projects.filter(p => (p.name || '').toLowerCase().includes(q));
+}
+
 function renderProjectsList() {
   const list = $('projects-list');
   const empty = $('projects-empty');
+  const noMatches = $('projects-no-matches');
   const countEl = $('projects-count');
 
-  if (countEl) countEl.textContent = state.projects.length;
+  const filtering = !!(state.projectFilter || '').trim();
+  const shown = _filterProjects(state.projects, state.projectFilter);
+
+  if (countEl) countEl.textContent = shown.length;
 
   if (!list) return;
   if (!state.projects.length) {
     list.innerHTML = '';
     if (empty) empty.classList.remove('hidden');
+    if (noMatches) noMatches.classList.add('hidden');
     return;
   }
   if (empty) empty.classList.add('hidden');
 
-  // If we have rootOrder + folders, render hierarchically
-  if (state.rootOrder.length > 0 && state.folders.length > 0) {
+  // "No matches" must stay distinct from "no projects": telling someone they
+  // have no projects while they have 114 of them is a lie the UI can avoid.
+  if (noMatches) noMatches.classList.toggle('hidden', !(filtering && !shown.length));
+
+  if (filtering) {
+    // Flat while filtering: folders whose children were all filtered out would
+    // otherwise render as empty rows, and cloud projects carry no folders at all.
+    list.innerHTML = shown.map(p => _renderItem(p.id, 0)).join('');
+  } else if (state.rootOrder.length > 0 && state.folders.length > 0) {
     list.innerHTML = state.rootOrder.map(id => _renderItem(id, 0)).join('');
   } else {
     // Fallback: flat list (old behavior)
@@ -3664,7 +3701,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _restoreCloudSession, state, conn };
+  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _restoreCloudSession, _filterProjects, state, conn };
 } else {
   init();
 }

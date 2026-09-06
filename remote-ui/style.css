@@ -2800,3 +2800,26 @@ html, body {
 }
 
 /* Session/control card dynamic status — overrides defined earlier */
+
+/* Project search - filters state.projects client-side, no network */
+.projects-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  background: var(--bg2);
+  border: 1.5px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.projects-search::placeholder { color: var(--text-muted); }
+
+.projects-search:focus {
+  outline: none;
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}

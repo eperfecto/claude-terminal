@@ -131,7 +131,13 @@
             <h2 class="view-title" data-i18n="nav.projects"></h2>
             <span class="view-count" id="projects-count">0</span>
           </div>
+          <input type="search" id="projects-search" class="projects-search"
+                 autocomplete="off" autocapitalize="off" spellcheck="false"
+                 data-i18n-placeholder="project.searchPlaceholder">
           <div id="projects-list" class="projects-list"></div>
+          <div id="projects-no-matches" class="empty-state hidden">
+            <p data-i18n="project.noMatches"></p>
+          </div>
           <div id="projects-empty" class="empty-state hidden">
             <div class="empty-icon">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
