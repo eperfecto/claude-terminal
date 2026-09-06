@@ -65,6 +65,7 @@ const EFFORT_OPTIONS = [
 
 const state = {
   projects: [],
+  projectFilter: '',      // live text from the project search box
   folders: [],
   rootOrder: [],
   collapsedFolders: JSON.parse(localStorage.getItem('remote_collapsed_folders') || '{}'),
@@ -183,6 +184,7 @@ function init() {
   setupPinEntry();
   setupCloudKeyEntry();
   setupNavigation();
+  setupProjectSearch();
   setupChatInput();
   setupPlusMenu();
   _setupImageInputs();
@@ -210,6 +212,13 @@ function init() {
       // Relay mode: skip PIN, connect directly
       _showMain();
       _openWS();
+      // A cloud session survives the page; pick it back up instead of orphaning it.
+      _restoreCloudSession().then(restored => {
+        if (!restored) return;
+        renderSessionBar();
+        renderChatMessages();
+        _showHeadlessBanner(true);
+      });
     } else if (conn.token) {
       _showMain();
       _openWS();
@@ -641,6 +650,21 @@ function _onDesktopOffline() {
   if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
     _showCloudPopup(true);
   }
+}
+
+/**
+ * The name the cloud API answers to for a project.
+ *
+ * _fetchCloudProjects stores the server's canonical key in `path` and the
+ * human-facing displayName in `name`. Every cloud endpoint addresses a project
+ * by that key, so passing `name` fails with `Project "<displayName>" does not
+ * exist`. Desktop projects keep their previous behaviour: their `path` is a
+ * filesystem path, not a server key.
+ */
+function _cloudProjectName(project) {
+  if (!project) return '';
+  if (project._cloud) return project.path || '';
+  return project.name || project.path?.split(/[\\/]/).pop() || '';
 }
 
 async function _fetchCloudProjects() {
@@ -1408,6 +1432,15 @@ function _scrollToBottom(container) {
 const GLOBAL_VIEWS = ['projects', 'chat', 'control', 'dashboard'];
 const PROJECT_VIEWS = ['sessions', 'git'];
 
+function setupProjectSearch() {
+  const input = $('projects-search');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    state.projectFilter = input.value;
+    renderProjectsList();
+  });
+}
+
 function setupNavigation() {
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => { navigator.vibrate?.(10); switchView(btn.dataset.view); });
@@ -1646,7 +1679,7 @@ function requestPastSessions(projectId) {
   if (conn.cloudUrl && conn.cloudApiKey) {
     const project = state.projects.find(p => p.id === projectId);
     if (!project) return;
-    const projectName = project.name || project.path?.split(/[\\/]/).pop() || '';
+    const projectName = _cloudProjectName(project);
     _fetchCloudPastSessions(projectId, projectName);
   }
 }
@@ -1685,7 +1718,7 @@ function resumePastSession(sessionId, projectId) {
 
   // Cloud/headless mode: resume via cloud API
   if (state.desktopOffline && conn.cloudUrl && conn.cloudApiKey) {
-    const projectName = project.name || project.path?.split(/[\\/]/).pop() || '';
+    const projectName = _cloudProjectName(project);
     _startHeadlessSession(projectName, 'Continue from where we left off.', sessionId).catch(() => {
       // Restore card on failure (banner already shows error via _startHeadlessSession)
       if (card) {
@@ -1872,23 +1905,49 @@ function _renderItem(itemId, depth, visited = new Set()) {
   return '';
 }
 
+/**
+ * Narrow the project list by a search query.
+ *
+ * Plain case-insensitive substring: cloud project names are server directory
+ * names, restricted to [A-Za-z0-9._-], so there is nothing to normalise. An
+ * empty query returns the original array by reference — callers rely on that to
+ * keep the untouched hierarchical render path.
+ */
+function _filterProjects(projects, query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return projects;
+  return projects.filter(p => (p.name || '').toLowerCase().includes(q));
+}
+
 function renderProjectsList() {
   const list = $('projects-list');
   const empty = $('projects-empty');
+  const noMatches = $('projects-no-matches');
   const countEl = $('projects-count');
 
-  if (countEl) countEl.textContent = state.projects.length;
+  const filtering = !!(state.projectFilter || '').trim();
+  const shown = _filterProjects(state.projects, state.projectFilter);
+
+  if (countEl) countEl.textContent = shown.length;
 
   if (!list) return;
   if (!state.projects.length) {
     list.innerHTML = '';
     if (empty) empty.classList.remove('hidden');
+    if (noMatches) noMatches.classList.add('hidden');
     return;
   }
   if (empty) empty.classList.add('hidden');
 
-  // If we have rootOrder + folders, render hierarchically
-  if (state.rootOrder.length > 0 && state.folders.length > 0) {
+  // "No matches" must stay distinct from "no projects": telling someone they
+  // have no projects while they have 114 of them is a lie the UI can avoid.
+  if (noMatches) noMatches.classList.toggle('hidden', !(filtering && !shown.length));
+
+  if (filtering) {
+    // Flat while filtering: folders whose children were all filtered out would
+    // otherwise render as empty rows, and cloud projects carry no folders at all.
+    list.innerHTML = shown.map(p => _renderItem(p.id, 0)).join('');
+  } else if (state.rootOrder.length > 0 && state.folders.length > 0) {
     list.innerHTML = state.rootOrder.map(id => _renderItem(id, 0)).join('');
   } else {
     // Fallback: flat list (old behavior)
@@ -2624,7 +2683,7 @@ function sendMessage() {
   if (state.desktopOffline && conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
     const project = state.projects.find(p => p.id === state.selectedProjectId);
     if (!project) return;
-    const projectName = project.name || project.path?.split(/[\\/]/).pop() || '';
+    const projectName = _cloudProjectName(project);
     input.value = '';
     input.style.height = 'auto';
     _clearImageAfterSend();
@@ -2734,8 +2793,38 @@ function _clearImageAfterSend() {
   if (bar) bar.classList.add('hidden');
 }
 
+/**
+ * Stop a headless cloud turn through the cloud API.
+ *
+ * Same rule as the relay path: only report the turn as stopped once the server
+ * confirms it, or the input lies about a turn that is still running.
+ */
+async function _interruptHeadlessSession() {
+  const base = conn.cloudUrl.replace(/\/$/, '');
+  try {
+    const resp = await fetch(`${base}/api/sessions/${encodeURIComponent(state._headlessSessionId)}/interrupt`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    setInputState('idle');
+  } catch {
+    _flashSendFailure();
+  }
+}
+
 function interruptSession() {
   if (!state.selectedSessionId) return;
+
+  // A headless cloud session has no desktop behind it, so its interrupt belongs
+  // to the cloud API. Routing it over the relay would send a privileged
+  // `chat:interrupt`, and wsSend answers those without a relay token by
+  // prompting for the desktop PIN — a login screen mid-chat.
+  if (state.cloudSessionMode && state._headlessSessionId && conn.cloudUrl && conn.cloudApiKey) {
+    _interruptHeadlessSession();
+    return;
+  }
+
   // Only flip back to idle if the interrupt actually reached the desktop —
   // otherwise the turn is still running and the UI would be lying.
   if (wsSend('chat:interrupt', { sessionId: state.selectedSessionId })) {
@@ -3520,6 +3609,58 @@ function _handleHeadlessEvent(msg) {
   }
 }
 
+/**
+ * Which live cloud session to rejoin after a reload.
+ *
+ * The server only lists sessions it still holds, so every entry is resumable;
+ * the most recently active one is the one the user was looking at.
+ */
+function _pickResumableSession(sessions) {
+  if (!Array.isArray(sessions) || !sessions.length) return null;
+  const when = s => s.lastActivity || s.createdAt || 0;
+  return sessions.reduce((best, s) => (when(s) > when(best) ? s : best));
+}
+
+/**
+ * Reattach to a cloud session left running by a previous page load.
+ *
+ * _saveSessions() stores nothing because the desktop replays its own sessions on
+ * reconnect. A headless session has no desktop to replay it, so without this a
+ * refresh silently orphaned a session that was still running on the server.
+ *
+ * The transcript is NOT restored: the server keeps it on disk but exposes no
+ * endpoint to read it back, so the chat resumes from the next event onward.
+ *
+ * @returns {Promise<string|undefined>} local session id, when one was restored
+ */
+async function _restoreCloudSession() {
+  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+
+  let sessions;
+  try {
+    const resp = await fetch(`${base}/api/sessions`, {
+      headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
+    });
+    if (!resp.ok) return;
+    ({ sessions } = await resp.json());
+  } catch {
+    return; // offline or server down — nothing to restore
+  }
+
+  const live = _pickResumableSession(sessions);
+  if (!live) return;
+
+  const localId = `headless-${live.id}`;
+  const project = state.projects.find(p => _cloudProjectName(p) === live.projectName);
+  state._headlessSessionId = live.id;
+  state.cloudSessionMode = true;
+  state.sessions[localId] = state.sessions[localId]
+    || _makeSession(localId, project?.id || '', live.projectName);
+  state.selectedSessionId = localId;
+  return localId;
+}
+
 async function _sendHeadlessMessage(text) {
   if (!state._headlessSessionId || !conn.cloudUrl || !conn.cloudApiKey) return;
   const base = conn.cloudUrl.replace(/\/$/, '');
@@ -3557,4 +3698,10 @@ function _cleanupHeadlessSession() {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-init();
+// A CommonJS test runner has no browser to boot, so expose the pure helpers
+// instead — they get exercised against this implementation, not a copy of it.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _restoreCloudSession, _filterProjects, state, conn };
+} else {
+  init();
+}

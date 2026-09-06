@@ -1,0 +1,30 @@
+/** @jest-environment jsdom */
+/**
+ * Addressing a cloud project.
+ *
+ * The cloud API knows a project by the server's canonical key, which the PWA
+ * stores in `path` when it maps /api/projects into state. `name` holds the
+ * human-facing displayName, which the server has never seen — sending it makes
+ * every cloud call fail with `Project "<displayName>" does not exist`.
+ */
+
+const { _cloudProjectName } = require('../../remote-ui/app.js');
+
+const cloudProject = {
+  id: 'cloud-project-1786576204080-ptd1hdefz',
+  name: 'agrochemicals-frontend',
+  path: 'project-1786576204080-ptd1hdefz',
+  _cloud: true,
+};
+
+test('addresses a cloud project by its server key, not its display name', () => {
+  expect(_cloudProjectName(cloudProject)).toBe('project-1786576204080-ptd1hdefz');
+});
+
+test('keeps using the plain name for a desktop project', () => {
+  expect(_cloudProjectName({ id: 'p1', name: 'alpha', path: '/w/alpha' })).toBe('alpha');
+});
+
+test('falls back to the folder name when a desktop project has none', () => {
+  expect(_cloudProjectName({ id: 'p2', path: '/w/beta' })).toBe('beta');
+});

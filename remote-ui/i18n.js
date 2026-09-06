@@ -63,6 +63,8 @@ const TRANSLATIONS = {
     // Projects
     'project.noProjects': 'Aucun projet.',
     'project.noProjectsDash': 'Aucun projet',
+    'project.searchPlaceholder': 'Rechercher un projet...',
+    'project.noMatches': 'Aucun projet ne correspond.',
 
     // Dashboard
     'dashboard.timeToday': 'Temps aujourd\'hui',
@@ -177,6 +179,8 @@ const TRANSLATIONS = {
 
     'project.noProjects': 'No projects yet.',
     'project.noProjectsDash': 'No projects yet',
+    'project.searchPlaceholder': 'Search projects...',
+    'project.noMatches': 'No projects match your search.',
 
     'dashboard.timeToday': 'Time today',
     'dashboard.activeProject': 'Active project',
@@ -282,6 +286,8 @@ const TRANSLATIONS = {
 
     'project.noProjects': 'Sin proyectos a\u00fan.',
     'project.noProjectsDash': 'Sin proyectos a\u00fan',
+    'project.searchPlaceholder': 'Buscar proyecto...',
+    'project.noMatches': 'Ningun proyecto coincide.',
 
     'dashboard.timeToday': 'Tiempo hoy',
     'dashboard.activeProject': 'Proyecto activo',
