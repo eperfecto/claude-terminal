@@ -210,6 +210,13 @@ function init() {
       // Relay mode: skip PIN, connect directly
       _showMain();
       _openWS();
+      // A cloud session survives the page; pick it back up instead of orphaning it.
+      _restoreCloudSession().then(restored => {
+        if (!restored) return;
+        renderSessionBar();
+        renderChatMessages();
+        _showHeadlessBanner(true);
+      });
     } else if (conn.token) {
       _showMain();
       _openWS();
@@ -3565,6 +3572,58 @@ function _handleHeadlessEvent(msg) {
   }
 }
 
+/**
+ * Which live cloud session to rejoin after a reload.
+ *
+ * The server only lists sessions it still holds, so every entry is resumable;
+ * the most recently active one is the one the user was looking at.
+ */
+function _pickResumableSession(sessions) {
+  if (!Array.isArray(sessions) || !sessions.length) return null;
+  const when = s => s.lastActivity || s.createdAt || 0;
+  return sessions.reduce((best, s) => (when(s) > when(best) ? s : best));
+}
+
+/**
+ * Reattach to a cloud session left running by a previous page load.
+ *
+ * _saveSessions() stores nothing because the desktop replays its own sessions on
+ * reconnect. A headless session has no desktop to replay it, so without this a
+ * refresh silently orphaned a session that was still running on the server.
+ *
+ * The transcript is NOT restored: the server keeps it on disk but exposes no
+ * endpoint to read it back, so the chat resumes from the next event onward.
+ *
+ * @returns {Promise<string|undefined>} local session id, when one was restored
+ */
+async function _restoreCloudSession() {
+  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+
+  let sessions;
+  try {
+    const resp = await fetch(`${base}/api/sessions`, {
+      headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
+    });
+    if (!resp.ok) return;
+    ({ sessions } = await resp.json());
+  } catch {
+    return; // offline or server down — nothing to restore
+  }
+
+  const live = _pickResumableSession(sessions);
+  if (!live) return;
+
+  const localId = `headless-${live.id}`;
+  const project = state.projects.find(p => _cloudProjectName(p) === live.projectName);
+  state._headlessSessionId = live.id;
+  state.cloudSessionMode = true;
+  state.sessions[localId] = state.sessions[localId]
+    || _makeSession(localId, project?.id || '', live.projectName);
+  state.selectedSessionId = localId;
+  return localId;
+}
+
 async function _sendHeadlessMessage(text) {
   if (!state._headlessSessionId || !conn.cloudUrl || !conn.cloudApiKey) return;
   const base = conn.cloudUrl.replace(/\/$/, '');
@@ -3605,7 +3664,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, interruptSession, state, conn };
+  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _restoreCloudSession, state, conn };
 } else {
   init();
 }
