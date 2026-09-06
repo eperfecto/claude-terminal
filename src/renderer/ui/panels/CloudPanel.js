@@ -503,21 +503,23 @@ function setupHandlers(context) {
       if (projects.length === 0) return;
 
       // Show project picker
-      const { showModal } = require('../components/Modal');
+      const { createModal, showModal, closeModal } = require('../components/Modal');
       const listHtml = projects.map(p => {
         const name = _escapeHtml(p.name || p.path?.split(/[\\/]/).pop() || '?');
         return `<div class="cp-pick-item" data-id="${_escapeHtml(p.id)}" data-name="${name}" data-path="${_escapeHtml(p.path)}">${name}</div>`;
       }).join('');
 
-      const modal = showModal({
+      // createModal returns the overlay element; showModal is what mounts it.
+      const modal = createModal({
         title: t('cloud.uploadTitle'),
-        html: `<div class="cp-pick-list">${listHtml}</div>`,
+        content: `<div class="cp-pick-list">${listHtml}</div>`,
         size: 'small',
       });
+      showModal(modal);
 
-      modal.el.querySelectorAll('.cp-pick-item').forEach(item => {
+      modal.querySelectorAll('.cp-pick-item').forEach(item => {
         item.addEventListener('click', async () => {
-          modal.close();
+          closeModal(modal);
           const projectId = item.dataset.id;
           const projectName = item.dataset.name;
           const projectPath = item.dataset.path;
