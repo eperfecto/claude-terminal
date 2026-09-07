@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # tests/cloud/ imports cloud/src directly, and that package has its own
+      # dependency tree. Without this the root's copies get resolved instead —
+      # a different major of uuid, no dotenv at all.
+      - name: Install cloud dependencies
+        run: npm ci --prefix cloud
+
       - name: Build renderer
         run: npm run build:renderer
 

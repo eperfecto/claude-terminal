@@ -650,6 +650,10 @@ function _onDesktopOffline() {
   // Show cloud popup if in relay mode (cloud server available)
   if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
     _showCloudPopup(true);
+    // Without a desktop the projects only exist on the server, so load them
+    // now: hanging that off the popup's CTA left the list empty for anyone who
+    // dismissed it, and a session with no project never shows up in the list.
+    _fetchCloudProjects();
   }
 }
 
@@ -1607,8 +1611,7 @@ function renderSessionsView() {
 
   // Past sessions from disk
   const PAST_INITIAL_LIMIT = 10;
-  const pastList = (state.pastSessions[projectId] || [])
-    .filter(ps => !state.sessions[ps.sessionId]);
+  const pastList = _unlistedPastSessions(state.pastSessions[projectId], state.sessions);
   const pastExpanded = list._pastExpanded || false;
   const visiblePast = pastExpanded ? pastList : pastList.slice(0, PAST_INITIAL_LIMIT);
   const hasMore = pastList.length > PAST_INITIAL_LIMIT && !pastExpanded;
@@ -1662,9 +1665,26 @@ function renderSessionsView() {
   }
 }
 
+/**
+ * The past sessions worth listing: the ones no open chat already stands for.
+ *
+ * A history entry is named by the SDK id found in the transcript, but an open
+ * cloud chat is keyed `headless-<cloud id>`. Only the server can bridge the two,
+ * which it does by reporting `cloudSessionId` alongside each entry.
+ */
+function _unlistedPastSessions(pastSessions, sessions) {
+  return (pastSessions || []).filter(ps =>
+    !sessions[ps.sessionId] &&
+    !(ps.cloudSessionId && sessions[`headless-${ps.cloudSessionId}`])
+  );
+}
+
 function openSession(sessionId) {
   state.selectedSessionId = sessionId;
   switchView('chat');
+  // A cloud session is server-owned: this device never saw the events that
+  // built it, so the chat opens blank unless we pull its transcript now.
+  _hydrateSelectedSession();
 }
 
 function createNewSession() {
@@ -3520,6 +3540,12 @@ async function _startHeadlessSession(projectName, prompt, resumeSessionId) {
     // Create a local session to render messages
     const project = state.projects.find(p => p.name === projectName || p.path?.endsWith(projectName));
     const localSession = _makeSession(`headless-${sessionId}`, project?.id || '', projectName);
+    // Resuming starts a NEW session pointed at an old transcript: the agent
+    // keeps the context, the phone does not. Show what is being continued
+    // instead of a lone "continue" line with nothing above it.
+    if (resumeSessionId) {
+      localSession.messages.push(...await _fetchCloudTranscript(resumeSessionId));
+    }
     localSession.messages.push({ role: 'user', content: prompt });
     state.sessions[localSession.sessionId] = localSession;
     state.selectedSessionId = localSession.sessionId;
@@ -3701,19 +3727,51 @@ async function _syncCloudSessions() {
 async function _loadCloudTranscript(sessionId) {
   const session = state.sessions[`headless-${sessionId}`];
   if (!session || session.messages.length) return;
-  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+
+  const messages = await _fetchCloudTranscript(sessionId);
+  // Anything that arrived live while the fetch was in flight is fresher.
+  if (messages.length && !session.messages.length) session.messages.push(...messages);
+}
+
+/**
+ * The stored conversation of a cloud session, by cloud id or by SDK id.
+ *
+ * Never throws and never returns null: a missing transcript costs the user some
+ * scrollback, and that is not worth failing the view over.
+ */
+async function _fetchCloudTranscript(sessionId) {
+  if (!conn.cloudUrl || !conn.cloudApiKey) return [];
   const base = conn.cloudUrl.replace(/\/$/, '');
 
   try {
     const resp = await fetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/transcript`, {
       headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
     });
-    if (!resp.ok) return;
+    if (!resp.ok) return [];
     const { messages } = await resp.json();
-    if (Array.isArray(messages) && messages.length && !session.messages.length) {
-      session.messages.push(...messages);
-    }
-  } catch { /* the transcript is a nicety; never break the view over it */ }
+    return Array.isArray(messages) ? messages : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pull the transcript of the session the user just opened.
+ *
+ * Cloud sessions are server-owned, so one opened from the session list or the
+ * Control view arrives blank: this device never saw the events that built it.
+ * Hydrating only the session picked at boot left every other chat empty.
+ */
+async function _hydrateSelectedSession() {
+  const localId = state.selectedSessionId;
+  if (!localId || localId.indexOf('headless-') !== 0) return;
+  const session = state.sessions[localId];
+  if (!session || session.messages.length) return;
+
+  await _loadCloudTranscript(localId.slice('headless-'.length));
+  // The user can switch chats while the fetch is in flight; only paint if the
+  // session we filled is still the one on screen.
+  if (state.selectedSessionId === localId) renderChatMessages();
 }
 
 async function _sendHeadlessMessage(text) {
@@ -3756,7 +3814,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _filterProjects, state, conn };
+  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _onDesktopOffline, _unlistedPastSessions, _startHeadlessSession, _filterProjects, state, conn };
 } else {
   init();
 }
