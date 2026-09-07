@@ -331,7 +331,7 @@ export class SessionManager {
     return `${encoded.slice(0, MAX_LEN)}-${Math.abs(hash).toString(36)}`;
   }
 
-  async listPastSessions(userName: string, projectName: string): Promise<Array<{ sessionId: string; firstPrompt: string; modified: string; messageCount: number }>> {
+  async listPastSessions(userName: string, projectName: string): Promise<Array<{ sessionId: string; cloudSessionId?: string; firstPrompt: string; modified: string; messageCount: number }>> {
     const projectPath = store.getProjectPath(userName, projectName);
     const userHome = store.userHomePath(userName);
     const encoded = this._encodeProjectPath(projectPath);
@@ -404,8 +404,18 @@ export class SessionManager {
       }
     }));
 
+    // A transcript on disk only knows the SDK's id. Hand back the cloud id too
+    // when a session still claims it, so the client can recognise a history
+    // entry it is already showing as a live chat.
+    const user = await store.getUser(userName);
+    const cloudIdBySdkId = new Map<string, string>();
+    for (const s of user?.sessions ?? []) {
+      if (s.sdkSessionId) cloudIdBySdkId.set(s.sdkSessionId, s.id);
+    }
+
     return results
       .filter((r): r is NonNullable<typeof r> => r !== null)
+      .map(r => ({ ...r, cloudSessionId: cloudIdBySdkId.get(r.sessionId) }))
       .sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime())
       .slice(0, 30);
   }
