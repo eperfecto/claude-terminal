@@ -534,17 +534,55 @@ export class SessionManager {
       sdkId = sdkId || meta?.sdkSessionId;
       projectName = projectName || meta?.projectName;
     }
-    if (!sdkId || !projectName) return [];
 
-    const projectPath = store.getProjectPath(userName, projectName);
-    const userHome = store.userHomePath(userName);
-    const sessionsDir = path.join(userHome, '.claude', 'projects', this._encodeProjectPath(projectPath));
+    // A session picked out of the history list has no cloud id behind it:
+    // listPastSessions() reads the SDK's own id out of the .jsonl, and that id
+    // names no entry in user.sessions. Take the caller's id at face value.
+    if (!sdkId) sdkId = sessionId;
 
+    const projectsRoot = path.join(store.userHomePath(userName), '.claude', 'projects');
+    const known = projectName
+      ? path.join(projectsRoot, this._encodeProjectPath(store.getProjectPath(userName, projectName)))
+      : null;
+
+    // The owning project is a hint, not a guarantee — it can be missing, or
+    // stale after a rename — so the other projects stay as a fallback.
+    const dirs = [known, ...(await this._listTranscriptDirs(projectsRoot))]
+      .filter((d): d is string => !!d)
+      .filter((d, i, all) => all.indexOf(d) === i);
+
+    for (const dir of dirs) {
+      const messages = await this._readTranscript(dir, sdkId);
+      if (messages) return messages;
+    }
+
+    return [];
+  }
+
+  /** Every per-project transcript directory Claude Code has written for a user. */
+  private async _listTranscriptDirs(projectsRoot: string): Promise<string[]> {
+    try {
+      const entries = await fs.promises.readdir(projectsRoot, { withFileTypes: true });
+      return entries.filter(e => e.isDirectory()).map(e => path.join(projectsRoot, e.name));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * The conversation `sdkId` names inside one directory, or null if it is not
+   * there. Only the user/assistant text survives: tool calls and their results
+   * are noise on a phone screen, and the sidechains belong to subagents.
+   */
+  private async _readTranscript(
+    sessionsDir: string,
+    sdkId: string,
+  ): Promise<Array<{ role: string; content: string }> | null> {
     let files: string[];
     try {
       files = (await fs.promises.readdir(sessionsDir)).filter(f => f.endsWith('.jsonl'));
     } catch {
-      return [];
+      return null;
     }
 
     // The file is usually named after the SDK id, but the id inside the file is
@@ -585,7 +623,7 @@ export class SessionManager {
       if (matched) return messages;
     }
 
-    return [];
+    return null;
   }
 
   private async persistSessionMeta(userName: string, sessionId: string, projectName: string, status: string, model?: string): Promise<void> {
