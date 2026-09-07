@@ -86,6 +86,15 @@ export function createCloudRouter(): Router {
 
   // ── User Profile ──
 
+  // These endpoints report live server state. Express stamps an ETag on
+  // res.json(), so a browser revalidates with If-None-Match, gets 304, and
+  // fetch() then resolves with the STALE cached body — a client that once saw
+  // an empty session list would keep seeing one forever.
+  router.use((_req: any, res: Response, next: any) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+
   router.get('/me', async (req: AuthRequest, res: Response) => {
     try {
       const user = await store.getUser(req.userName!);
