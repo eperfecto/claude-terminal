@@ -16,6 +16,8 @@ interface ActiveSession {
   messageQueue: ReturnType<typeof createMessageQueue>;
   streamClients: Set<WebSocket>;
   status: 'running' | 'idle' | 'error';
+  /** Id the SDK stamps on its events and transcript; see UserSession.sdkSessionId. */
+  sdkSessionId?: string;
   changedFiles: Set<string>;
   fileWatcher: FileWatcher;
   closing?: boolean;
@@ -421,6 +423,13 @@ export class SessionManager {
           console.log(`[Session ${sessionId}] Event #${eventCount}: type=${event?.type}`);
         }
         this.trackFileChanges(session, event);
+        // The SDK reveals its own session id on its events. Capture it once:
+        // it is the only key that finds this conversation's transcript later.
+        if (!session.sdkSessionId && event?.session_id) {
+          session.sdkSessionId = event.session_id;
+          this.persistSessionMeta(session.userName, sessionId, session.projectName, session.status)
+            .catch(() => { /* metadata only — never break the stream over it */ });
+        }
         this.broadcastToStream(sessionId, { type: 'event', sessionId, event });
       }
       console.log(`[Session ${sessionId}] Stream ended after ${eventCount} events, status=idle`);
@@ -507,6 +516,78 @@ export class SessionManager {
     }
   }
 
+  /**
+   * The conversation of a session, read back from the SDK transcript on disk.
+   *
+   * Sessions live on the server, so every device must be able to open the same
+   * one. Nothing else can serve that: addStreamClient() has no replay buffer,
+   * and listPastSessions() returns metadata only.
+   */
+  async getTranscript(userName: string, sessionId: string): Promise<Array<{ role: string; content: string }>> {
+    const live = this.sessions.get(sessionId);
+    let sdkId = live?.sdkSessionId;
+    let projectName = live?.projectName;
+
+    if (!sdkId || !projectName) {
+      const user = await store.getUser(userName);
+      const meta = user?.sessions.find(s => s.id === sessionId);
+      sdkId = sdkId || meta?.sdkSessionId;
+      projectName = projectName || meta?.projectName;
+    }
+    if (!sdkId || !projectName) return [];
+
+    const projectPath = store.getProjectPath(userName, projectName);
+    const userHome = store.userHomePath(userName);
+    const sessionsDir = path.join(userHome, '.claude', 'projects', this._encodeProjectPath(projectPath));
+
+    let files: string[];
+    try {
+      files = (await fs.promises.readdir(sessionsDir)).filter(f => f.endsWith('.jsonl'));
+    } catch {
+      return [];
+    }
+
+    // The file is usually named after the SDK id, but the id inside the file is
+    // what listPastSessions() trusts, so fall back to scanning rather than
+    // returning nothing when the naming differs.
+    const preferred = `${sdkId}.jsonl`;
+    const ordered = files.includes(preferred) ? [preferred, ...files.filter(f => f !== preferred)] : files;
+
+    for (const file of ordered) {
+      let raw: string;
+      try {
+        raw = await fs.promises.readFile(path.join(sessionsDir, file), 'utf-8');
+      } catch {
+        continue;
+      }
+
+      const messages: Array<{ role: string; content: string }> = [];
+      let matched = false;
+
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        let obj: any;
+        try { obj = JSON.parse(line); } catch { continue; }
+        if (obj.sessionId && obj.sessionId !== sdkId) { matched = false; break; }
+        if (obj.sessionId === sdkId) matched = true;
+        if (obj.isSidechain) continue;
+
+        const role = obj.type === 'user' ? 'user' : obj.type === 'assistant' ? 'assistant' : null;
+        if (!role) continue;
+
+        const c = obj.message?.content;
+        let text = '';
+        if (typeof c === 'string') text = c;
+        else if (Array.isArray(c)) text = c.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+        if (text.trim()) messages.push({ role, content: text });
+      }
+
+      if (matched) return messages;
+    }
+
+    return [];
+  }
+
   private async persistSessionMeta(userName: string, sessionId: string, projectName: string, status: string, model?: string): Promise<void> {
     const user = await store.getUser(userName);
     if (!user) return;
@@ -514,6 +595,8 @@ export class SessionManager {
     const existing = user.sessions.findIndex(s => s.id === sessionId);
     const entry: UserSession = {
       id: sessionId,
+      sdkSessionId: this.sessions.get(sessionId)?.sdkSessionId
+        || (existing >= 0 ? user.sessions[existing].sdkSessionId : undefined),
       projectName,
       status: status as 'idle' | 'running' | 'error',
       model: model || 'claude-sonnet-4-6',

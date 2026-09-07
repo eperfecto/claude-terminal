@@ -450,6 +450,16 @@ export function createCloudRouter(): Router {
     }
   });
 
+  router.get('/sessions/:id/transcript', async (req: AuthRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const messages = await sessionManager.getTranscript(req.userName!, id);
+      res.json({ messages });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.get('/sessions/history/:projectName', async (req: AuthRequest, res: Response) => {
     try {
       const projectName = req.params.projectName as string;

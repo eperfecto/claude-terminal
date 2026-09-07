@@ -213,11 +213,12 @@ function init() {
       _showMain();
       _openWS();
       // A cloud session survives the page; pick it back up instead of orphaning it.
-      _restoreCloudSession().then(restored => {
-        if (!restored) return;
+      _syncCloudSessions().then(async () => {
+        if (state._headlessSessionId) await _loadCloudTranscript(state._headlessSessionId);
         renderSessionBar();
         renderChatMessages();
-        _showHeadlessBanner(true);
+        _refreshControlIfActive();   // Control reads state.sessions too
+        if (state._headlessSessionId) _showHeadlessBanner(true);
       });
     } else if (conn.token) {
       _showMain();
@@ -888,6 +889,11 @@ function handleMessage(msg) {
     case 'stream':
       if (msg.data) {
         _debugLog('[Stream] Relay event:', msg.data.type, msg.data.event?.type || '');
+        // Events for a session this device never saw mean it was started
+        // elsewhere. Adopt it rather than rendering nothing while it runs.
+        if (msg.sessionId && !state.sessions[`headless-${msg.sessionId}`]) {
+          _syncCloudSessions().then(() => { renderSessionBar(); _refreshControlIfActive(); });
+        }
         _handleHeadlessEvent(msg.data);
       }
       break;
@@ -1471,6 +1477,11 @@ function switchView(view) {
   const navBtn = document.querySelector(`#${activeGroup} .nav-item[data-view="${view}"]`);
   if (navBtn) navBtn.classList.add('active');
   _updateNavPill();
+  // Cloud sessions can be started from another device, so the list this view
+  // renders may be stale the moment it opens. Re-ask the server on entry.
+  if (view === 'control' || view === 'sessions') {
+    _syncCloudSessions().then(() => { renderSessionBar(); _refreshControlIfActive(); });
+  }
   if (view === 'sessions') {
     renderSessionsView();
   }
@@ -3622,19 +3633,17 @@ function _pickResumableSession(sessions) {
 }
 
 /**
- * Reattach to a cloud session left running by a previous page load.
+ * Bring state.sessions in line with the cloud sessions the server is holding.
  *
- * _saveSessions() stores nothing because the desktop replays its own sessions on
- * reconnect. A headless session has no desktop to replay it, so without this a
- * refresh silently orphaned a session that was still running on the server.
+ * A cloud session belongs to the server, not to the device that started it, so
+ * this is the only honest source for the list. Both the chat session bar and the
+ * Control view render from state.sessions, which is why a device that never ran
+ * this shows neither.
  *
- * The transcript is NOT restored: the server keeps it on disk but exposes no
- * endpoint to read it back, so the chat resumes from the next event onward.
- *
- * @returns {Promise<string|undefined>} local session id, when one was restored
+ * @returns {Promise<Array>} the live sessions the server reported
  */
-async function _restoreCloudSession() {
-  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+async function _syncCloudSessions() {
+  if (!conn.cloudUrl || !conn.cloudApiKey) return [];
   const base = conn.cloudUrl.replace(/\/$/, '');
 
   let sessions;
@@ -3642,23 +3651,69 @@ async function _restoreCloudSession() {
     const resp = await fetch(`${base}/api/sessions`, {
       headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
     });
-    if (!resp.ok) return;
+    if (!resp.ok) return [];
     ({ sessions } = await resp.json());
   } catch {
-    return; // offline or server down — nothing to restore
+    return []; // offline — keep what is on screen rather than blanking it
+  }
+  if (!Array.isArray(sessions)) return [];
+
+  const liveIds = new Set(sessions.map(s => `headless-${s.id}`));
+
+  for (const s of sessions) {
+    const localId = `headless-${s.id}`;
+    const project = state.projects.find(p => _cloudProjectName(p) === s.projectName);
+    const existing = state.sessions[localId];
+    if (existing) {
+      // The project list can load after the first sync; bind late, not never.
+      if (!existing.projectId && project) existing.projectId = project.id;
+    } else {
+      state.sessions[localId] = _makeSession(localId, project ? project.id : '', s.projectName);
+    }
   }
 
-  const live = _pickResumableSession(sessions);
-  if (!live) return;
+  // A session the server stopped reporting is over. Leaving it on screen offers
+  // a chat box that can never receive another event.
+  for (const id of Object.keys(state.sessions)) {
+    if (id.indexOf('headless-') === 0 && !liveIds.has(id)) {
+      delete state.sessions[id];
+      if (state.selectedSessionId === id) state.selectedSessionId = null;
+    }
+  }
 
-  const localId = `headless-${live.id}`;
-  const project = state.projects.find(p => _cloudProjectName(p) === live.projectName);
-  state._headlessSessionId = live.id;
-  state.cloudSessionMode = true;
-  state.sessions[localId] = state.sessions[localId]
-    || _makeSession(localId, project?.id || '', live.projectName);
-  state.selectedSessionId = localId;
-  return localId;
+  const newest = _pickResumableSession(sessions);
+  if (newest) {
+    state.cloudSessionMode = true;
+    state._headlessSessionId = newest.id;
+    if (!state.selectedSessionId || !state.sessions[state.selectedSessionId]) {
+      state.selectedSessionId = `headless-${newest.id}`;
+    }
+  }
+  return sessions;
+}
+
+/**
+ * Fill a blank cloud session with the transcript the server kept on disk.
+ *
+ * Only ever fills a blank one: messages already on screen arrived live and are
+ * fresher than anything the file can offer.
+ */
+async function _loadCloudTranscript(sessionId) {
+  const session = state.sessions[`headless-${sessionId}`];
+  if (!session || session.messages.length) return;
+  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+
+  try {
+    const resp = await fetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/transcript`, {
+      headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
+    });
+    if (!resp.ok) return;
+    const { messages } = await resp.json();
+    if (Array.isArray(messages) && messages.length && !session.messages.length) {
+      session.messages.push(...messages);
+    }
+  } catch { /* the transcript is a nicety; never break the view over it */ }
 }
 
 async function _sendHeadlessMessage(text) {
@@ -3701,7 +3756,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _restoreCloudSession, _filterProjects, state, conn };
+  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _filterProjects, state, conn };
 } else {
   init();
 }

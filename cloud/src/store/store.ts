@@ -12,6 +12,13 @@ export interface UserProject {
 
 export interface UserSession {
   id: string;
+  /**
+   * The id the Claude SDK writes inside its own transcript. It is NOT our id:
+   * createSession() generates a uuid for the API, while the SDK allocates its
+   * own, and only the SDK's appears in the .jsonl on disk. Kept here so a
+   * transcript can be found again after the process that streamed it is gone.
+   */
+  sdkSessionId?: string;
   projectName: string;
   status: 'idle' | 'running' | 'error';
   model: string;
