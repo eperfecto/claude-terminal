@@ -18,6 +18,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm ci --prefix cloud
       - run: npm run build:renderer
       - run: npm test
       - name: Build and publish Windows installer
@@ -49,6 +50,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm ci --prefix cloud
       - run: npm run build:renderer
       - run: npm test
       - name: Build and publish macOS DMG (${{ matrix.arch }})
@@ -184,6 +186,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm ci --prefix cloud
       - run: npm run build:renderer
       - run: npm test
       - name: Build and publish Linux AppImage
