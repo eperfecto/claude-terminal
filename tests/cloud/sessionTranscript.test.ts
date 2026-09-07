@@ -14,6 +14,11 @@ import path from 'path';
 
 const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-transcript-'));
 
+// The root and cloud/ trees carry different major versions of uuid, and the
+// root one is ESM-only. SessionManager needs it solely to mint ids for new
+// sessions, which nothing here exercises — so stub it and stay hermetic.
+jest.mock('uuid', () => ({ v4: () => 'unused-in-these-tests' }));
+
 jest.mock('../../cloud/src/store/store', () => ({
   store: {
     getUser: jest.fn(),
