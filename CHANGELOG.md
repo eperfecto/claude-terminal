@@ -2,7 +2,7 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.3.0] - 2026-09-10
 
 ### Added
 - The mobile chat folds a run of the same tool into one row with a ×N badge, the
