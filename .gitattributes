@@ -1,0 +1,8 @@
+# Shell scripts must keep LF in the working tree, not just in the repo.
+#
+# cloud/entrypoint.sh is the ENTRYPOINT of the cloud server image. Built from a
+# checkout where core.autocrlf turned it into CRLF, the shebang ends up as
+# `#!/bin/bash\r` and the container dies with
+# `exec /entrypoint.sh: no such file or directory` — which says nothing about
+# line endings and costs an hour to recognise.
+*.sh text eol=lf
