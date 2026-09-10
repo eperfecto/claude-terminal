@@ -72,6 +72,97 @@ function createMessageQueue(onIdle?: () => void) {
   };
 }
 
+
+export interface LiveSessionInput {
+  id: string;
+  projectName: string;
+  status: string;
+}
+
+export interface SessionListEntry {
+  id: string;
+  projectName: string;
+  status: string;
+  createdAt: number | null;
+  lastActivity: number | null;
+  model: string | null;
+  sdkSessionId?: string;
+}
+
+/**
+ * The sessions the API reports: the ones still running in this process, plus the
+ * ones whose process is gone but whose conversation is still on disk.
+ *
+ * Deriving the list from the live Map alone meant a restart erased it, even
+ * though sdkSessionId was persisted precisely so the transcript could be found
+ * again. A session that is no longer live is reported as `resumable` rather than
+ * with its last persisted status — repeating `running` for a dead process offers
+ * a chat that can never answer.
+ *
+ * Orphans past the session timeout are dropped: nothing closes them, because the
+ * stale-session sweep only sees the live Map, so without this they accumulate on
+ * every restart.
+ */
+export function mergeSessionList(
+  live: LiveSessionInput[],
+  stored: UserSession[],
+  now: number,
+  maxAgeMs: number,
+): SessionListEntry[] {
+  const byId = new Map(stored.map(s => [s.id, s]));
+  const liveIds = new Set(live.map(s => s.id));
+
+  const result: SessionListEntry[] = live.map(session => {
+    const meta = byId.get(session.id);
+    return {
+      id: session.id,
+      projectName: session.projectName,
+      status: session.status,
+      createdAt: meta?.createdAt ?? null,
+      lastActivity: meta?.lastActivity ?? null,
+      model: meta?.model ?? null,
+    };
+  });
+
+  for (const meta of stored) {
+    if (liveIds.has(meta.id)) continue;
+    // No sdk id means no transcript key, so there is nothing to resume into.
+    if (!meta.sdkSessionId) continue;
+    if (now - (meta.lastActivity || 0) > maxAgeMs) continue;
+    result.push({
+      id: meta.id,
+      projectName: meta.projectName,
+      status: 'resumable',
+      createdAt: meta.createdAt ?? null,
+      lastActivity: meta.lastActivity ?? null,
+      model: meta.model ?? null,
+      sdkSessionId: meta.sdkSessionId,
+    });
+  }
+
+  return result;
+}
+
+
+/**
+ * Clear the 'running' a restart left behind on disk.
+ *
+ * Nothing else does: persistSessionMeta writes the status while the process is
+ * alive and the process cannot write anything on its way out. The admin TUI
+ * counts these entries, so a stale 'running' inflates its active-session count
+ * for as long as the entry survives. 'error' is left alone — that status stays
+ * true after a restart.
+ */
+export function demoteOrphanedSessions(stored: UserSession[]): { sessions: UserSession[]; changed: boolean } {
+  let changed = false;
+  const sessions = stored.map(session => {
+    if (session.status !== 'running') return session;
+    changed = true;
+    return { ...session, status: 'resumable' as const };
+  });
+  return { sessions, changed };
+}
+
 export class SessionManager {
   private sessions: Map<string, ActiveSession> = new Map();
   private sdk: any = null;
@@ -79,9 +170,30 @@ export class SessionManager {
 
   /** Begin periodic cleanup of stale sessions. Called once at server start. */
   start(): void {
+    this._reconcileStoredSessions().catch(err => {
+      console.error('[SessionManager] Could not reconcile stored sessions:', err.message);
+    });
+
     if (!this._cleanupTimer) {
       this._cleanupTimer = setInterval(() => this._cleanupStaleSessions(), 15 * 60_000);
       this._cleanupTimer.unref();
+    }
+  }
+
+  /**
+   * No session can be running in a process that has just started, so any stored
+   * entry still claiming it is a leftover from the previous one.
+   */
+  private async _reconcileStoredSessions(): Promise<void> {
+    const users = await store.listUsers();
+    for (const name of users) {
+      const user = await store.getUser(name);
+      if (!user) continue;
+      const { sessions, changed } = demoteOrphanedSessions(user.sessions);
+      if (!changed) continue;
+      user.sessions = sessions;
+      await store.saveUser(name, user);
+      console.log(`[SessionManager] Reconciled stored sessions for ${name}`);
     }
   }
 
@@ -282,23 +394,20 @@ export class SessionManager {
     return true;
   }
 
-  listUserSessions(userName: string): Array<{ id: string; projectName: string; status: string; createdAt: number | null; lastActivity: number | null; model: string | null }> {
-    const result: Array<{ id: string; projectName: string; status: string; createdAt: number | null; lastActivity: number | null; model: string | null }> = [];
+  listUserSessions(userName: string): SessionListEntry[] {
+    const live: LiveSessionInput[] = [];
     for (const [, session] of this.sessions) {
       if (session.userName === userName) {
-        // Look up persisted metadata for createdAt / lastActivity / model
-        const meta = this._getUserSessionMeta(userName, session.id);
-        result.push({
-          id: session.id,
-          projectName: session.projectName,
-          status: session.status,
-          createdAt: meta?.createdAt ?? null,
-          lastActivity: meta?.lastActivity ?? null,
-          model: meta?.model ?? null,
-        });
+        live.push({ id: session.id, projectName: session.projectName, status: session.status });
       }
     }
-    return result;
+    let stored: UserSession[] = [];
+    try {
+      stored = store.getUserSync(userName)?.sessions ?? [];
+    } catch {
+      stored = [];
+    }
+    return mergeSessionList(live, stored, Date.now(), config.sessionTimeoutHours * 60 * 60 * 1000);
   }
 
   private _getUserSessionMeta(userName: string, sessionId: string): import('../store/store').UserSession | null {

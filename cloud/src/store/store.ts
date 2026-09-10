@@ -20,7 +20,12 @@ export interface UserSession {
    */
   sdkSessionId?: string;
   projectName: string;
-  status: 'idle' | 'running' | 'error';
+  /**
+   * 'resumable' means the process that ran this session is gone (the server
+   * restarted) but its transcript is still on disk, so the conversation can be
+   * continued. It is written at boot over the stale 'running' left behind.
+   */
+  status: 'idle' | 'running' | 'error' | 'resumable';
   model: string;
   createdAt: number;
   lastActivity: number;
