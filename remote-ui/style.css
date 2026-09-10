@@ -485,6 +485,17 @@ html, body {
   letter-spacing: 0.02em;
 }
 
+/* The cloud server's build, beside the project count. Deliberately quieter than
+   the count: it is reference information, not something to read every time. */
+.view-version {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+
+.view-version[hidden] {
+  display: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    BOTTOM NAVIGATION
    ═══════════════════════════════════════════════════════════════════════════ */

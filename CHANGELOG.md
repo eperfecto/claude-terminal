@@ -2,6 +2,17 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Added
+- The mobile remote shows which build the cloud server is running, beside the
+  project count. It stays hidden unless the server reports a real version.
+
+### Fixed
+- `/health` reported the version of `cloud/package.json`, which nothing bumps —
+  it had said `0.2.0` across every release. It now reports the release version
+  the server was built from, so the admin Overview tab shows it too.
+
 ## [2.0.0] - 2026-09-10
 
 **Breaking:** the mobile remote no longer connects to your desktop. If you used it

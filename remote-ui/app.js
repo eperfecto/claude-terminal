@@ -176,6 +176,7 @@ function init() {
   if (conn.cloudApiKey) {
     _showMain();
     connSetState('connected');
+    _fetchServerVersion();
     _fetchCloudProjects();
     // A cloud session survives the page; pick it back up instead of orphaning it.
     _syncCloudSessions().then(async () => {
@@ -291,6 +292,7 @@ async function submitCloudKey(apiKey) {
 
   _showMain();
   connSetState('connected');
+  _fetchServerVersion();
   _fetchCloudProjects();
   _syncCloudSessions().then(() => { renderSessionBar(); _refreshControlIfActive(); });
 }
@@ -1244,6 +1246,34 @@ function _filterProjects(projects, query) {
   const q = (query || '').trim().toLowerCase();
   if (!q) return projects;
   return projects.filter(p => (p.name || '').toLowerCase().includes(q));
+}
+
+/**
+ * Which build the cloud server is running, shown next to the project count.
+ *
+ * Only ever shows a real answer: a dash or a "?" in that pill reads as a broken
+ * app, so anything short of a version keeps the indicator hidden.
+ */
+function _applyServerVersion(health) {
+  const el = $('server-version');
+  if (!el) return;
+  const version = health && typeof health.version === 'string' ? health.version.trim() : '';
+  el.textContent = version;
+  el.hidden = !version;
+}
+
+/** /health is public — sending the API key to it would leak it for nothing. */
+async function _fetchServerVersion() {
+  if (!conn.cloudUrl) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+  try {
+    const resp = await fetch(`${base}/health`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    _applyServerVersion(await resp.json());
+  } catch (err) {
+    _debugLog('[Cloud] Failed to read the server version:', err?.message || err);
+    _applyServerVersion(null);
+  }
 }
 
 function renderProjectsList() {
@@ -2409,7 +2439,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _filterProjects, state, conn };
+  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _applyServerVersion, _fetchServerVersion, _filterProjects, state, conn };
 } else {
   init();
 }
