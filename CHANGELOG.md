@@ -2,7 +2,7 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.2.1] - 2026-09-10
 
 ### Fixed
 - Opening a session from Control or from the session dropdown showed an empty
