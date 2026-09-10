@@ -2,6 +2,17 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [2.1.1] - 2026-09-10
+
+### Fixed
+- The cloud server image failed to build: the release version file the previous
+  version added to `/health` was excluded from the Docker build context, so every
+  `docker compose up --build` aborted. Upgrading a self-hosted server to 2.1.0
+  was not possible.
+- Building the cloud server image from a Windows checkout produced a container
+  that died on startup with `exec /entrypoint.sh: no such file or directory`.
+  Shell scripts are now pinned to LF line endings.
+
 ## [2.1.0] - 2026-09-10
 
 ### Added
