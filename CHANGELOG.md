@@ -2,7 +2,7 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.5.0] - 2026-09-10
 
 ### Added
 - The cloud image ships the GitHub CLI, and `user setup` authenticates it with the
