@@ -22,7 +22,6 @@ const { registerChatHandlers } = require('./chat.ipc');
 const { registerHooksHandlers } = require('./hooks.ipc');
 const { registerMinecraftHandlers } = require('../../project-types/minecraft/main/minecraft.ipc');
 const { registerDiscordHandlers } = require('../../project-types/discord/main/discord.ipc');
-const { registerRemoteHandlers } = require('./remote.ipc');
 const { registerWorkflowHandlers } = require('./workflow.ipc');
 const { registerCloudProjectsHandlers, setCloudProjectsMainWindow } = require('./cloud-projects.ipc');
 const { registerCloudSyncHandlers, setCloudSyncMainWindow } = require('./cloud-sync.ipc');
@@ -67,7 +66,6 @@ function registerAllHandlers(mainWindow) {
   registerHooksHandlers();
   registerMinecraftHandlers();
   registerDiscordHandlers();
-  registerRemoteHandlers();
   registerWorkflowHandlers(mainWindow);
   registerCloudProjectsHandlers();
   registerCloudSyncHandlers();

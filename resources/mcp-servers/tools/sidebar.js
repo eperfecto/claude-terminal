@@ -58,7 +58,7 @@ const TAB_LABELS = {
   dashboard: 'Projects dashboard',
   timetracking: 'Time tracking',
   memory: 'Memory editor (MEMORY.md)',
-  connectivity: 'Connectivity (local Wi-Fi + cloud relay)',
+  connectivity: 'Connectivity (cloud server)',
 };
 
 // -- Tool definitions ---------------------------------------------------------

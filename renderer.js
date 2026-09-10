@@ -110,9 +110,6 @@ const ModalComponent = require('./src/renderer/ui/components/Modal');
 const { showImportProjectsModal } = require('./src/renderer/ui/components/ImportProjectsModal');
 const { formatAheadBehind } = require('./src/renderer/utils/gitFormat');
 const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel, CloudPanel, ConnectivityPanel, ControlTowerPanel, SessionReplayPanel, ParallelTaskPanel, WorkspacePanel, ErrorLogPanel } = require('./src/renderer/ui/panels');
-// Not re-exported by the panels index: ConnectivityPanel embeds it as a sub-tab,
-// but its polling lifecycle is driven from the tab registry below.
-const RemotePanel = require('./src/renderer/ui/panels/RemotePanel');
 
 // ========== LOCAL MODAL FUNCTIONS ==========
 // These work with the existing HTML modal elements in index.html
@@ -2269,9 +2266,10 @@ async function _checkNewCloudProjects() {
   } catch { /* ignore */ }
 }
 
-// The relay emits `connected` again on every WebSocket reconnect. Refreshing the
-// list each time is cheap, but the new/deleted-project checks are user-facing —
-// run them only once per app session, otherwise a flaky connection spams toasts.
+// The status monitor re-emits `connected` whenever the cloud comes back after a
+// failed probe. Refreshing the list each time is cheap, but the new/deleted-project
+// checks are user-facing — run them only once per app session, otherwise a flaky
+// connection spams toasts.
 let _cloudProjectChecksDone = false;
 function _onCloudConnected() {
   refreshCloudProjects();
@@ -2946,7 +2944,7 @@ function _restoreScrollPositions(tabId) {
 //
 // Contract: `deactivate` of the outgoing tab always runs before `activate` of
 // the incoming one, and a panel with a timer MUST declare a `deactivate`.
-// Panels also self-guard (see ControlTowerPanel / RemotePanel / SessionReplay)
+// Panels also self-guard (see ControlTowerPanel / SessionReplay)
 // so a switch path that bypasses this registry still cannot leak.
 const _TAB_LIFECYCLE = {
   claude: {
@@ -3037,12 +3035,9 @@ const _TAB_LIFECYCLE = {
         });
         container.dataset.initialized = 'true';
       }
-      // setupHandlers() runs once, so this is what resumes the polls.
-      RemotePanel.onActivate();
     },
     deactivate: () => {
-      ConnectivityPanel.cleanup();   // forwards to CloudPanel only
-      RemotePanel.onDeactivate();    // 10s status + 5s PIN polls
+      ConnectivityPanel.cleanup();
     }
   }
 };
@@ -5671,43 +5666,6 @@ api.setupWizard.onSettingsChanged((settings) => {
     location.reload();
   }
 });
-
-// Remote Control: ouvrir un tab chat depuis mobile
-api.remote.onOpenChatTab(({ cwd, prompt, images, model, effort, resumeSessionId }) => {
-  const projects = projectsState.get().projects;
-  const project = projects.find(p => cwd && cwd.replace(/\\/g, '/').startsWith(p.path.replace(/\\/g, '/')));
-  if (!project) return;
-  const projectIndex = getProjectIndex(project.id);
-  setSelectedProjectFilter(projectIndex);
-  ProjectList.render();
-  TerminalManager.createTerminal(project, {
-    mode: 'chat',
-    skipPermissions: settingsState.get().skipPermissions,
-    cwd,
-    initialPrompt: prompt || null,
-    initialImages: Array.isArray(images) && images.length ? images : null,
-    initialModel: model || null,
-    initialEffort: effort || null,
-    resumeSessionId: resumeSessionId || null,
-    onSessionStart: (sessionId) => {
-      api.remote.notifySessionCreated({ sessionId, projectId: project.id, tabName: project.name });
-    },
-  });
-});
-
-// Remote Control: push live time tracking data
-(function _startRemoteTimePush() {
-  function pushTime() {
-    try {
-      const { today } = getGlobalTimes();
-      api.remote.pushTimeData({ todayMs: today });
-    } catch (e) { console.error('[Remote] pushTime error:', e); }
-  }
-  // Push immédiat quand le serveur le demande (nouveau client connecté)
-  api.remote.onRequestTimePush(pushTime);
-  // Push périodique toutes les 30s pour les clients déjà connectés
-  setInterval(pushTime, 30000);
-})();
 
 api.tray.onOpenTerminal(() => {
   const selectedFilter = projectsState.get().selectedProjectFilter;

@@ -26,7 +26,6 @@ class ApiProvider {
   get claude() { return this._api.claude; }
   get hooks() { return this._api.hooks; }
   get project() { return this._api.project; }
-  get remote() { return this._api.remote; }
   get cloud() { return this._api.cloud; }
   get notification() { return this._api.notification; }
   get updates() { return this._api.updates; }

@@ -2719,7 +2719,7 @@ workflow/trigger — Entry point (always first, always required)
   triggerType: manual | cron | hook | on_workflow | webhook
   triggerValue: cron expression e.g. "0 9 * * 1-5" (weekdays at 9am)
   hookType: PreToolUse | PostToolUse | UserPromptSubmit | Notification | Stop
-  webhook: triggered by external HTTP POST via cloud relay (GitHub, Stripe, Slack, etc.)
+  webhook: triggered by an external HTTP POST (GitHub, Stripe, Slack, etc.)
     The request body is available as $trigger.payload (e.g. $trigger.payload.event)
   Exec outputs: slot0=Start
 

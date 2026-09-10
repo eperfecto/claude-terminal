@@ -7,7 +7,6 @@
 const { BasePanel } = require('../../core/BasePanel');
 const { escapeHtml } = require('../../utils');
 const { t, setLanguage, getCurrentLanguage, getAvailableLanguages } = require('../../i18n');
-// RemotePanel is now part of ConnectivityPanel (top-level tab)
 
 // ── Module-level constants ──
 

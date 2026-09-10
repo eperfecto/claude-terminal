@@ -47,7 +47,7 @@ function buildHtml(settings) {
             </svg>
           </div>
           <div>
-            <div class="cp-topbar-title">${t('cloud.relayTitle')}</div>
+            <div class="cp-topbar-title">${t('cloud.serverTitle')}</div>
             <div class="cp-topbar-subtitle">${t('cloud.infoBanner')}</div>
           </div>
         </div>

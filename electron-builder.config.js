@@ -61,11 +61,6 @@ module.exports = {
       filter: ["**/*"]
     },
     {
-      from: "remote-ui",
-      to: "remote-ui",
-      filter: ["**/*"]
-    },
-    {
       from: "resources/mcp-servers",
       to: "mcp-servers",
       filter: ["**/*"]

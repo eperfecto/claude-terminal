@@ -351,10 +351,6 @@ class ChatService {
     this.mainWindow = window;
   }
 
-  setRemoteEventCallback(fn) {
-    this._remoteEventCallback = fn || null;
-  }
-
   /**
    * Register a callback for session lifecycle events (start / end).
    * Called with ({ event, sessionId, projectId, cwd, status, error? })
@@ -492,9 +488,6 @@ class ChatService {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data);
     }
-    if (this._remoteEventCallback) {
-      this._remoteEventCallback(channel, data);
-    }
   }
 
   /**
@@ -614,10 +607,6 @@ class ChatService {
         session_id: sessionId,
         ...(userMessageUuid ? { uuid: userMessageUuid } : {})
       });
-      // Relay initial user message to remote clients
-      if (this._remoteEventCallback) {
-        this._remoteEventCallback('chat-user-message', { sessionId, text: prompt, images: images.length });
-      }
     }
 
     const abortController = new AbortController();
@@ -777,10 +766,6 @@ class ChatService {
         session_id: sessionId,
         ...(userMessageUuid ? { uuid: userMessageUuid } : {})
       });
-      // Relay user message to remote clients so mobile sees it
-      if (this._remoteEventCallback) {
-        this._remoteEventCallback('chat-user-message', { sessionId, text, images: images.length });
-      }
       // Fire chat_message trigger for user prompts
       if (typeof text === 'string' && text.trim()) {
         this._emitMessage('user', text, sessionId);
@@ -1316,12 +1301,6 @@ class ChatService {
     } finally {
       if (session) session.interrupting = false;
       this._rejectPendingPermissions(sessionId, 'Stream ended');
-      // Mark session as stream-ended so closeSession won't emit duplicate session:closed
-      if (session) session._streamEnded = true;
-      // Notify remote clients that this session's stream has ended
-      if (this._remoteEventCallback) {
-        this._remoteEventCallback('session:closed', { sessionId });
-      }
     }
   }
 
@@ -2027,12 +2006,7 @@ class ChatService {
         try { pending.reject(new Error('Session closed')); } catch (_) {}
       }
     }
-    const alreadyNotified = session._streamEnded;
     this.sessions.delete(sessionId);
-    // Notify remote clients (skip if _processStream already sent session:closed)
-    if (!alreadyNotified && this._remoteEventCallback) {
-      this._remoteEventCallback('session:closed', { sessionId });
-    }
   }
 
   // ── Cloud session methods ──

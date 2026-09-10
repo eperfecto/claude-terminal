@@ -5988,25 +5988,6 @@ class ChatView extends BaseComponent {
   });
   unsubscribers.push(unsubIdle);
 
-  // ── IPC: Remote user message (sent from mobile PWA) ──
-
-  const unsubRemoteMsg = api.remote.onUserMessage(({ sessionId: sid, text, images }) => {
-    if (sid !== sessionId) return;
-    appendUserMessage(text, images || [], [], isStreaming);
-    // Trigger tab rename for remote messages (same logic as _send)
-    if (onTabRename && text && !text.startsWith('/') && getSetting('aiTabNaming') !== false) {
-      const words = text.split(/\s+/).slice(0, 5).join(' ');
-      onTabRename(words.length > 30 ? words.slice(0, 28) + '...' : words);
-      if (!tabNamePending) {
-        tabNamePending = true;
-        api.chat.generateTabName({ userMessage: text }).then(res => {
-          if (res?.success && res.name) onTabRename(res.name);
-        }).catch(() => {}).finally(() => { tabNamePending = false; });
-      }
-    }
-  });
-  unsubscribers.push(unsubRemoteMsg);
-
   // ── IPC: Initializing (runtime resolution in progress) ──
 
   let _initSecondaryTimer = null;

@@ -45,9 +45,9 @@ const defaultSettings = {
   showTabModeToggle: true, // Show Chat/Terminal mode-switch button on terminal tabs
   tabRenameOnSlashCommand: false, // Rename terminal tab to slash command text when submitted
   aiTabNaming: true, // Use AI (Haiku) to generate short tab names from messages
-  cloudServerUrl: '', // Cloud relay server URL (e.g. 'https://cloud.example.com')
+  cloudServerUrl: '', // Cloud server URL (e.g. 'https://cloud.example.com')
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
-  cloudAutoConnect: true, // Auto-connect to cloud relay on startup
+  cloudAutoConnect: true, // Auto-connect to the cloud server on startup
   cloudAutoSync: true, // Auto-sync local changes to cloud
   cloudSyncSettings: true, // Sync app settings
   cloudSyncProjects: true, // Sync project list

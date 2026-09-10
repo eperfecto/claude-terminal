@@ -4000,9 +4000,6 @@ class TerminalManager extends BaseComponent {
         if (_chatSessionId && name) {
           await self._setSessionCustomName(_chatSessionId, name);
         }
-        if (_chatSessionId && self._api.remote?.notifyTabRenamed) {
-          self._api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
-        }
       },
       onStatusChange: (status, substatus) => self._updateChatTerminalStatus(id, status, substatus),
       onSwitchTerminal: (dir) => self._callbacks.onSwitchTerminal?.(dir),

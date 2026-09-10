@@ -15,7 +15,6 @@ const hooksService = require('./HooksService');
 const hookEventServer = require('./HookEventServer');
 const cloudStatusMonitor = require('./CloudStatusMonitor');
 const minecraftService = require('../../project-types/minecraft/main/MinecraftService');
-const remoteServer = require('./RemoteServer');
 const workflowService = require('./WorkflowService');
 const databaseService = require('./DatabaseService');
 const parallelTaskService = require('./ParallelTaskService');
@@ -35,7 +34,6 @@ function initializeServices(mainWindow) {
   chatService.setMainWindow(mainWindow);
   hookEventServer.setMainWindow(mainWindow);
   minecraftService.setMainWindow(mainWindow);
-  remoteServer.setMainWindow(mainWindow); // auto-starts if remoteEnabled
 
   // Workflow service: inject deps + init scheduler
   workflowService.setMainWindow(mainWindow);
@@ -358,7 +356,6 @@ function cleanupServices() {
   chatService.destroy();
   hookEventServer.stop();
   cloudStatusMonitor.stop();
-  remoteServer.stop();
   workflowService.destroy();
   discordRpcService.destroy();
   databaseService.disconnectAll().catch(() => {});
@@ -388,7 +385,6 @@ module.exports = {
   hooksService,
   hookEventServer,
   minecraftService,
-  remoteServer,
   workflowService,
   initializeServices,
   cleanupServices

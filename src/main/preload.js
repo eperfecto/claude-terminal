@@ -598,24 +598,6 @@ contextBridge.exposeInMainWorld('electron_api', {
     resolvePermission: (requestId, decision) => ipcRenderer.send('hooks-resolve-permission', { requestId, decision })
   },
 
-  // ==================== REMOTE CONTROL ====================
-  remote: {
-    getPin: () => ipcRenderer.invoke('remote:get-pin'),
-    generatePin: () => ipcRenderer.invoke('remote:generate-pin'),
-    getServerInfo: () => ipcRenderer.invoke('remote:get-server-info'),
-    notifyProjectsUpdated: (params) => ipcRenderer.send('remote:notify-projects-updated', params),
-    notifySessionCreated: (params) => ipcRenderer.send('remote:session-created', params),
-    notifyTabRenamed: (params) => ipcRenderer.send('remote:tab-renamed', params),
-    pushTimeData: (params) => ipcRenderer.send('remote:push-time-data', params),
-    startServer: () => ipcRenderer.invoke('remote:start-server'),
-    stopServer: () => ipcRenderer.invoke('remote:stop-server'),
-    getClients: () => ipcRenderer.invoke('remote:get-clients'),
-    disconnectClient: (params) => ipcRenderer.invoke('remote:disconnect-client', params),
-    onOpenChatTab: createListener('remote:open-chat-tab'),
-    onRequestTimePush: createListener('remote:request-time-push'),
-    onUserMessage: createListener('remote:user-message'),
-  },
-
   // ==================== ERROR LOG ====================
   errorLog: {
     getEntries: (filters) => ipcRenderer.invoke('errorlog-get-entries', filters),
