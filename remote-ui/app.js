@@ -1348,6 +1348,19 @@ function _setupChatDelegation() {
     // Tool card expand
     const toolCard = e.target.closest('.tool-card.expandable');
     if (toolCard) { _toggleToolExpand(toolCard); return; }
+    // Tool group expand
+    const groupHeader = e.target.closest('.tool-group-header');
+    if (groupHeader) {
+      const group = groupHeader.closest('.tool-group');
+      const key = group?.dataset.groupKey;
+      if (!key) return;
+      if (_openToolGroups.has(key)) _openToolGroups.delete(key);
+      else _openToolGroups.add(key);
+      group.classList.toggle('open');
+      const chevron = groupHeader.querySelector('.tool-group-chevron');
+      if (chevron) chevron.textContent = group.classList.contains('open') ? '▾' : '▸';
+      return;
+    }
   });
 }
 
@@ -1397,8 +1410,8 @@ function renderChatMessages() {
   }
 
   let html = '';
-  for (const m of session.messages) {
-    html += _renderMessage(m);
+  for (const entry of _groupToolRuns(session.messages)) {
+    html += entry.kind === 'group' ? _renderToolGroup(entry) : _renderMessage(entry.message);
   }
   container.innerHTML = html;
 
@@ -1418,6 +1431,70 @@ function renderChatMessages() {
 }
 
 // ── Render a single message to HTML ──
+
+/**
+ * Fold runs of the same tool into one entry.
+ *
+ * A turn that runs six commands printed six cards and pushed the answer off a
+ * phone screen. The desktop chat already collapses a run into a single row with
+ * a ×N badge; this produces the same shape for a renderer that rebuilds its
+ * whole list instead of mutating the DOM.
+ *
+ * The group is keyed by its first card's toolId: the list is re-rendered on
+ * every streamed event, so a key derived from position would move under the
+ * user and collapse whatever they had opened.
+ */
+function _groupToolRuns(messages) {
+  const out = [];
+  let i = 0;
+  while (i < messages.length) {
+    const m = messages[i];
+    if (m.role !== 'tool') { out.push({ kind: 'single', message: m }); i++; continue; }
+
+    let end = i + 1;
+    while (end < messages.length &&
+           messages[end].role === 'tool' &&
+           messages[end].toolName === m.toolName) end++;
+
+    const cards = messages.slice(i, end);
+    if (cards.length === 1) {
+      out.push({ kind: 'single', message: m });
+    } else {
+      // Running outranks error: a red group that is still working reads as over.
+      const status = cards.some(c => c.status === 'running') ? 'running'
+        : cards.some(c => c.status === 'error') ? 'error'
+        : 'done';
+      out.push({ kind: 'group', toolName: m.toolName, cards, status, key: m.toolId || '' });
+    }
+    i = end;
+  }
+  return out;
+}
+
+// Which tool groups the user opened. Held outside the DOM because the message
+// list is rebuilt on every streamed event, which would otherwise slam a group
+// shut while its commands are still arriving.
+const _openToolGroups = new Set();
+
+function _renderToolGroup(group) {
+  const open = _openToolGroups.has(group.key);
+  const statusIcon = group.status === 'running'
+    ? '<div class="tool-spinner"></div>'
+    : group.status === 'error'
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';
+
+  return `<div class="tool-group ${open ? 'open' : ''}" data-group-key="${escHtml(group.key)}">
+    <div class="tool-group-header">
+      <span class="tool-icon">${getToolIcon(group.toolName)}</span>
+      <span class="tool-name">${escHtml(group.toolName || 'Tool')}</span>
+      <span class="tool-group-badge">×${group.cards.length}</span>
+      <span class="tool-status">${statusIcon}</span>
+      <span class="tool-group-chevron">${open ? '▾' : '▸'}</span>
+    </div>
+    <div class="tool-group-items">${group.cards.map(_renderToolCard).join('')}</div>
+  </div>`;
+}
 
 function _renderMessage(m) {
   if (m.role === 'user') {
@@ -2474,7 +2551,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, sendMessage, selectSession, renderControlView, renderSessionBar, interruptSession, _pickSessionToRejoin, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _applyServerVersion, _fetchServerVersion, _filterProjects, state, conn };
+  module.exports = { _cloudProjectName, sendMessage, _groupToolRuns, renderChatMessages, _setupChatDelegation, selectSession, renderControlView, renderSessionBar, interruptSession, _pickSessionToRejoin, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _applyServerVersion, _fetchServerVersion, _filterProjects, state, conn };
 } else {
   init();
 }

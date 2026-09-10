@@ -2,6 +2,14 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Added
+- The mobile chat folds a run of the same tool into one row with a ×N badge, the
+  way the desktop chat already did. A turn that ran six shell commands printed six
+  cards and pushed the answer off the screen. Tap the row to see the individual
+  calls; it stays open while the rest of the run arrives.
+
 ## [2.2.1] - 2026-09-10
 
 ### Fixed

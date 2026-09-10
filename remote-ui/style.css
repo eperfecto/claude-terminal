@@ -884,6 +884,59 @@ html, body {
 }
 
 .tool-card.expandable { cursor: pointer; }
+
+/* A run of the same tool folded into one row. Collapsed by default: the point is
+   to keep six shell commands from pushing the answer off a phone screen. */
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  max-width: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+  animation: msgIn 0.25s var(--ease-out) both;
+}
+
+.tool-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.tool-group-header:active { background: var(--bg3); }
+
+.tool-group-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg3);
+  padding: 1px 6px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.tool-group-chevron {
+  color: var(--text-dim);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tool-group-items { display: none; }
+.tool-group.open .tool-group-items { display: block; }
+
+/* Inside a group the cards are rows of one list, not separate floating cards. */
+.tool-group-items .tool-card {
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  animation: none;
+}
 .tool-card.expandable:active { background: var(--bg3); }
 
 .tool-card-row {
