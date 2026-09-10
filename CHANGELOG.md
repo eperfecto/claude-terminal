@@ -2,6 +2,15 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- The cloud image could ship without the gentle-ai binary. `INSTALL_DIR=... curl
+  | bash` sets the variable for curl, not for the shell on the other side of the
+  pipe, so the installer never saw it. The image now also asserts the binary is on
+  PATH at build time, instead of failing later as `gentle-ai: not found` inside a
+  session.
+
 ## [2.4.0] - 2026-09-10
 
 ### Added

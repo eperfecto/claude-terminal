@@ -34,7 +34,10 @@ RUN ln -sf /home/claude/.local/bin/claude /usr/local/bin/claude 2>/dev/null || t
 #
 # gentle-ai carries engram, context7, the skills and the SDD components as part
 # of its claude-code preset, so this one install covers them.
-RUN INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash
+# INSTALL_DIR belongs to the shell that runs the script, not to curl: in
+# `VAR=x curl | bash` the variable never reaches the right-hand side of the pipe.
+RUN curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | INSTALL_DIR=/usr/local/bin bash
+RUN command -v gentle-ai
 
 # codegraph backs the MCP of the same name
 RUN npm install -g @colbymchenry/codegraph
