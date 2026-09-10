@@ -2,6 +2,13 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Added
+- The cloud image ships the GitHub CLI, and `user setup` authenticates it with the
+  token it already asks for. A session can open a PR instead of reporting that
+  `gh` is not available.
+
 ## [2.4.1] - 2026-09-10
 
 ### Fixed

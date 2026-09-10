@@ -17,6 +17,19 @@ WORKDIR /app
 RUN apt-get update -qq && apt-get install -y -qq curl git gosu && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI, so a session can open a PR rather than report that gh is missing.
+# Debian does not carry it, so this uses GitHub own repository - which also
+# resolves the architecture, since this image builds for amd64 and arm64.
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update -qq && apt-get install -y -qq gh \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN command -v gh
+
 # Create non-root user (SDK refuses bypassPermissions as root)
 RUN groupadd -r claude && useradd -r -g claude -m -d /home/claude -s /bin/bash claude
 

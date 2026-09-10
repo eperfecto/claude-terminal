@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { store } from './store/store';
+import { configureGhAuth, commandExists } from './gh';
 import { generateApiKey, hashApiKey } from './auth/auth';
 import { config } from './config';
 import readline from 'readline';
@@ -120,15 +121,6 @@ function prompt(question: string): Promise<string> {
   });
 }
 
-/** Whether a binary is on PATH, so an optional step can be skipped cleanly. */
-function commandExists(bin: string): boolean {
-  try {
-    execSync(process.platform === 'win32' ? `where ${bin}` : `command -v ${bin}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 async function userSetup(name: string): Promise<void> {
   if (!name) {
@@ -209,6 +201,16 @@ async function userSetup(name: string): Promise<void> {
     } else {
       console.log('  Skipped');
     }
+  }
+
+  // ── GitHub CLI ──
+  // Reuses the token just stored for git: one secret, and a session that can open
+  // a PR instead of reporting that `gh` is missing.
+  switch (configureGhAuth(userHome)) {
+    case 'ok':       console.log('  ✓ gh authenticated with the same token'); break;
+    case 'failed':   console.log('  ! gh refused the token — git still works'); break;
+    case 'no-token': break; // nothing was provided; nothing to report
+    case 'no-gh':    break; // older image without the CLI
   }
 
   // ── Claude authentication ──
