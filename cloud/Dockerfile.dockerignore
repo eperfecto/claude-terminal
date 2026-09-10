@@ -2,6 +2,8 @@
 *
 !cloud/
 !remote-ui/
+# The release version, copied in as app-version.json for /health
+!package.json
 cloud/node_modules/
 cloud/data/
 cloud/dist/
