@@ -72,7 +72,6 @@ const state = {
   selectedProjectId: null,
   sessions: {},           // { [sessionId]: Session }
   selectedSessionId: null,
-  pendingPermissions: new Map(), // Map<requestId, permData>
   currentView: 'projects',
   todayMs: 0,
   _pendingUserMessage: null,
@@ -82,10 +81,7 @@ const state = {
   slashCommands: [], // Dynamic slash commands from SDK
   fileList: [], // File list for @file picker [{path, fullPath}]
   pastSessions: {}, // { [projectId]: Session[] } — historical sessions from disk
-  // Headless cloud mode
-  cloudSessionMode: false,    // true when running headless via cloud API
-  desktopOffline: false,      // true when desktop is offline (relay mode)
-  _headlessSessionId: null,   // active headless session ID on cloud
+  activeSessionId: null,      // active session ID on the cloud server
 };
 
 // Session shape:
@@ -118,39 +114,17 @@ function _restoreSessions() {
 
 // ─── Connection State Machine ──────────────────────────────────────────────────
 
-// Stable per-device id. Used purely for correlation: the relay is a broadcast
-// bus, so the desktop echoes it back on auth results and rejections and each
-// mobile ignores what is not addressed to it. It is never a credential.
-function _getClientId() {
-  try {
-    let id = localStorage.getItem('remote_client_id');
-    if (!id) {
-      id = 'm' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-      localStorage.setItem('remote_client_id', id);
-    }
-    return id;
-  } catch (_) {
-    return 'm' + Math.random().toString(36).slice(2, 10);
-  }
-}
-
+// The cloud server is the only peer. `ws` is the stream of whichever session is
+// currently open — there is no persistent control socket, so a phone with no
+// running session holds no socket at all.
 const conn = {
-  token: localStorage.getItem('remote_session_token'),
+  cloudUrl: localStorage.getItem('remote_cloud_url') || (typeof window !== 'undefined' ? window.location.origin : ''),
+  cloudApiKey: localStorage.getItem('remote_cloud_api_key') || '',
   ws: null,
+  streamSessionId: null,
   state: 'auth',
   retryCount: 0,
   retryTimer: null,
-  // Cloud relay mode: 'lan' (default, same network) or 'relay' (via cloud server)
-  mode: localStorage.getItem('remote_conn_mode') || 'lan',
-  cloudUrl: localStorage.getItem('remote_cloud_url') || '',
-  cloudApiKey: localStorage.getItem('remote_cloud_api_key') || '',
-  // Relay mode only. The cloud API key authenticates us to the RELAY; this token
-  // authenticates us to the DESKTOP and is what unlocks privileged actions. It is
-  // obtained by tunnelling the same 6-digit PIN handshake used on the LAN.
-  relayToken: localStorage.getItem('remote_relay_token') || null,
-  clientId: _getClientId(),
-  _pinNonce: null,
-  _pinTimer: null,
 };
 
 function connSetState(s) {
@@ -178,55 +152,44 @@ const $ = (id) => document.getElementById(id);
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 function init() {
-  _debugLog('[Init] mode=' + conn.mode, 'cloudUrl=' + (conn.cloudUrl || 'none'), 'hasKey=' + !!conn.cloudApiKey);
+  _debugLog('[Init] cloudUrl=' + (conn.cloudUrl || 'none'), 'hasKey=' + !!conn.cloudApiKey);
   i18n.applyDOM();
   _restoreSessions();
-  setupPinEntry();
   setupCloudKeyEntry();
   setupNavigation();
   setupProjectSearch();
   setupChatInput();
   setupPlusMenu();
-  _setupImageInputs();
   _setupChatDelegation();
-  _setupMentionChipsDelegation();
 
-  // Check for relay mode params in URL: ?mode=relay&url=...&key=...
+  // Credentials can be handed over in the URL: ?url=...&key=...
   const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('mode') === 'relay' && urlParams.get('url') && urlParams.get('key')) {
-    conn.mode = 'relay';
-    conn.cloudUrl = urlParams.get('url');
+  if (urlParams.get('key')) {
+    conn.cloudUrl = urlParams.get('url') || window.location.origin;
     conn.cloudApiKey = urlParams.get('key');
-    localStorage.setItem('remote_conn_mode', 'relay');
     localStorage.setItem('remote_cloud_url', conn.cloudUrl);
     localStorage.setItem('remote_cloud_api_key', conn.cloudApiKey);
     // Clean URL
     window.history.replaceState({}, '', window.location.pathname);
   }
 
-  // Auto-detect cloud hosting: if served from a cloud server (has /health endpoint),
-  // default to cloud mode and use current origin as relay URL.
-  // Must await detection before deciding which screen to show.
-  _detectCloudHosting().then(() => {
-    if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
-      // Relay mode: skip PIN, connect directly
-      _showMain();
-      _openWS();
-      // A cloud session survives the page; pick it back up instead of orphaning it.
-      _syncCloudSessions().then(async () => {
-        if (state._headlessSessionId) await _loadCloudTranscript(state._headlessSessionId);
-        renderSessionBar();
-        renderChatMessages();
-        _refreshControlIfActive();   // Control reads state.sessions too
-        if (state._headlessSessionId) _showHeadlessBanner(true);
-      });
-    } else if (conn.token) {
-      _showMain();
-      _openWS();
-    } else {
-      _showAuth();
-    }
-  });
+  if (conn.cloudApiKey) {
+    _showMain();
+    connSetState('connected');
+    _fetchCloudProjects();
+    // A cloud session survives the page; pick it back up instead of orphaning it.
+    _syncCloudSessions().then(async () => {
+      if (state.activeSessionId) {
+        await _loadCloudTranscript(state.activeSessionId);
+        _openSessionStream(state.activeSessionId);
+      }
+      renderSessionBar();
+      renderChatMessages();
+      _refreshControlIfActive();   // Control reads state.sessions too
+    });
+  } else {
+    _showAuth();
+  }
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
@@ -249,59 +212,26 @@ function init() {
   }
 
   _setupPwaInstallBanner();
-  _setupCloudPopup();
 }
 
 // ─── Screen Management ────────────────────────────────────────────────────────
 
 /**
- * @param {boolean} [showCloudError]
- * @param {boolean} [relayPinPrompt] - relay mode asking for the desktop PIN.
- *   Keeps the connection state untouched: the relay socket must stay alive (and
- *   keep reconnecting) because the handshake itself travels over it.
+ * The only credential is the cloud API key, so the auth screen is one field.
+ * @param {boolean} [showCloudError] - render the "key rejected" message.
  */
-function _showAuth(showCloudError, relayPinPrompt) {
+function _showAuth(showCloudError) {
   $('screen-auth').classList.remove('hidden');
   $('screen-main').classList.add('hidden');
-  // Reset PIN fields
-  const pinInput = $('pin-input');
-  if (pinInput) { pinInput.value = ''; pinInput.disabled = false; }
-  const submitBtn = $('pin-submit-btn');
-  if (submitBtn) submitBtn.disabled = false;
-  const errEl = $('pin-error');
-  if (errEl) errEl.classList.add('hidden');
-  // Reset cloud key fields
   const cloudKeyInput = $('cloud-key-input');
   if (cloudKeyInput) { cloudKeyInput.value = ''; cloudKeyInput.disabled = false; }
   const cloudSubmitBtn = $('cloud-key-submit-btn');
   if (cloudSubmitBtn) cloudSubmitBtn.disabled = false;
   const cloudErrEl = $('cloud-key-error');
   if (cloudErrEl) cloudErrEl.classList.toggle('hidden', !showCloudError);
-  // Show the correct auth section based on mode
-  const isCloud = conn.mode === 'relay' && !relayPinPrompt;
-  const pinSection = $('auth-pin-section');
   const cloudSection = $('auth-cloud-section');
-  if (pinSection && cloudSection) {
-    pinSection.classList.toggle('hidden', isCloud);
-    cloudSection.classList.toggle('hidden', !isCloud);
-  }
-  if (!relayPinPrompt) connSetState('auth');
-}
-
-/**
- * Relay mode: ask for the desktop PIN so this device can obtain a session token.
- * Triggered lazily, on the first privileged action, so read-only browsing and
- * headless cloud sessions (which never touch the desktop) keep working without it.
- */
-function _promptRelayPin(errorText) {
-  _showAuth(false, true);
-  const pinInput = $('pin-input');
-  if (pinInput) pinInput.focus();
-  const errorEl = $('pin-error');
-  if (errorEl && errorText) {
-    errorEl.textContent = errorText;
-    errorEl.classList.remove('hidden');
-  }
+  if (cloudSection) cloudSection.classList.remove('hidden');
+  connSetState('auth');
 }
 
 function _showMain() {
@@ -309,155 +239,11 @@ function _showMain() {
   $('screen-main').classList.remove('hidden');
 }
 
-// ─── PIN Entry ────────────────────────────────────────────────────────────────
-
-function setupPinEntry() {
-  const pinInput = $('pin-input');
-  const submitBtn = $('pin-submit-btn');
-  if (!pinInput || !submitBtn) return;
-
-  pinInput.addEventListener('input', () => {
-    const val = pinInput.value.replace(/\D/g, '').slice(0, 6);
-    pinInput.value = val;
-    if (val.length === 6) submitPin(val);
-  });
-  submitBtn.addEventListener('click', () => submitPin(pinInput.value.trim()));
-  pinInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') submitPin(pinInput.value.trim());
-  });
-}
-
-async function submitPin(pin) {
-  if (!pin || pin.length < 6) return;
-
-  const pinInput = $('pin-input');
-  const submitBtn = $('pin-submit-btn');
-  const errorEl = $('pin-error');
-
-  if (pinInput) pinInput.disabled = true;
-  if (submitBtn) submitBtn.disabled = true;
-  if (errorEl) errorEl.classList.add('hidden');
-
-  // Relay mode: POST /auth is not reachable through the relay, so the same PIN
-  // exchange is tunnelled over the already-open relay socket instead.
-  if (conn.mode === 'relay') { _submitPinOverRelay(pin); return; }
-
-  try {
-    const res = await fetch('/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin }),
-    });
-    const data = await res.json();
-
-    if (!res.ok || !data.token) {
-      if (errorEl) errorEl.classList.remove('hidden');
-      if (pinInput) { pinInput.disabled = false; pinInput.value = ''; pinInput.focus(); }
-      if (submitBtn) submitBtn.disabled = false;
-      return;
-    }
-
-    conn.token = data.token;
-    localStorage.setItem('remote_session_token', data.token);
-    _showMain();
-    _openWS();
-  } catch (e) {
-    if (errorEl) { errorEl.textContent = t('pin.connFail'); errorEl.classList.remove('hidden'); }
-    if (pinInput) { pinInput.disabled = false; pinInput.focus(); }
-    if (submitBtn) submitBtn.disabled = false;
-  }
-}
-
-// ─── Relay PIN Handshake ─────────────────────────────────────────────────────
-//
-//   mobile  → { type: 'auth:pin',    data: { pin, nonce }, clientId }
-//   desktop → { type: 'auth:result', data: { ok, token?, error?, nonce, clientId } }
-//
-// The relay only forwards {type, data} frames, so both legs are ordinary frames.
-// The nonce correlates the reply with OUR request: several phones can share one
-// cloud API key, and none of them should adopt a token minted for another.
-
-const RELAY_PIN_TIMEOUT_MS = 10000;
-
-function _submitPinOverRelay(pin) {
-  if (!conn.ws || conn.ws.readyState !== 1) {
-    _relayPinFailed(t('pin.connFail'));
-    return;
-  }
-  conn._pinNonce = 'n' + Math.random().toString(36).slice(2, 12);
-  clearTimeout(conn._pinTimer);
-  // The desktop may be offline behind an otherwise healthy relay, in which case
-  // nothing ever answers — fail loudly instead of hanging on a disabled form.
-  conn._pinTimer = setTimeout(() => {
-    conn._pinTimer = null;
-    conn._pinNonce = null;
-    _relayPinFailed(t('misc.desktopOffline'));
-  }, RELAY_PIN_TIMEOUT_MS);
-  // Deliberately bypasses wsSend(): the handshake is neither queueable nor
-  // subject to the "needs a token" gate it enforces.
-  try {
-    conn.ws.send(JSON.stringify({
-      type: 'auth:pin',
-      data: { pin, nonce: conn._pinNonce },
-      clientId: conn.clientId,
-    }));
-  } catch (err) {
-    clearTimeout(conn._pinTimer);
-    conn._pinTimer = null;
-    conn._pinNonce = null;
-    _relayPinFailed(t('pin.connFail'));
-  }
-}
-
-function _onRelayAuthResult(data) {
-  // Ignore anything we did not ask for, or another device's result.
-  if (!data || !conn._pinNonce || data.nonce !== conn._pinNonce) return;
-  if (data.clientId && data.clientId !== conn.clientId) return;
-
-  clearTimeout(conn._pinTimer);
-  conn._pinTimer = null;
-  conn._pinNonce = null;
-
-  if (!data.ok || !data.token) {
-    _relayPinFailed(data.error || t('pin.error'));
-    return;
-  }
-  conn.relayToken = data.token;
-  try { localStorage.setItem('remote_relay_token', data.token); } catch (_) {}
-  _debugLog('[Relay] Session token obtained via PIN handshake');
-  _showMain();
-  connSetState('connected');
-  wsSend('request:init', {});
-}
-
-function _relayPinFailed(message) {
-  const pinInput = $('pin-input');
-  const submitBtn = $('pin-submit-btn');
-  const errorEl = $('pin-error');
-  if (errorEl) { errorEl.textContent = message; errorEl.classList.remove('hidden'); }
-  if (pinInput) { pinInput.disabled = false; pinInput.value = ''; pinInput.focus(); }
-  if (submitBtn) submitBtn.disabled = false;
-}
-
-/** The desktop refused a frame — drop a dead token and re-ask for the PIN. */
-function _onRemoteRejected(data) {
-  if (!data) return;
-  if (data.clientId && data.clientId !== conn.clientId) return;
-  console.warn('[WS] Server rejected ' + (data.type || 'message') + ': ' + (data.error || 'no reason given'));
-  if (data.reason === 'invalid-token' || data.reason === 'revoked') {
-    conn.relayToken = null;
-    try { localStorage.removeItem('remote_relay_token'); } catch (_) {}
-  }
-  if (conn.mode === 'relay' && !conn.relayToken) _promptRelayPin(data.error);
-}
-
 // ─── Cloud Key Entry ─────────────────────────────────────────────────────────
 
 function setupCloudKeyEntry() {
   const keyInput = $('cloud-key-input');
   const submitBtn = $('cloud-key-submit-btn');
-  const switchCloudBtn = $('auth-switch-cloud');
-  const switchPinBtn = $('auth-switch-pin');
 
   if (submitBtn && keyInput) {
     submitBtn.addEventListener('click', () => submitCloudKey(keyInput.value.trim()));
@@ -465,27 +251,14 @@ function setupCloudKeyEntry() {
       if (e.key === 'Enter') submitCloudKey(keyInput.value.trim());
     });
   }
-
-  if (switchCloudBtn) {
-    switchCloudBtn.addEventListener('click', () => {
-      $('auth-pin-section').classList.add('hidden');
-      $('auth-cloud-section').classList.remove('hidden');
-      const ki = $('cloud-key-input');
-      if (ki) ki.focus();
-    });
-  }
-
-  if (switchPinBtn) {
-    switchPinBtn.addEventListener('click', () => {
-      $('auth-cloud-section').classList.add('hidden');
-      $('auth-pin-section').classList.remove('hidden');
-      const pi = $('pin-input');
-      if (pi) pi.focus();
-    });
-  }
 }
 
-function submitCloudKey(apiKey) {
+/**
+ * There is no control socket left to reject a bad key with a close code, so the
+ * key is verified here against `/api/me` before it is stored. Storing first and
+ * discovering the rejection later stranded the phone on an empty main screen.
+ */
+async function submitCloudKey(apiKey) {
   if (!apiKey) return;
 
   const keyInput = $('cloud-key-input');
@@ -496,166 +269,102 @@ function submitCloudKey(apiKey) {
   if (submitBtn) submitBtn.disabled = true;
   if (errorEl) errorEl.classList.add('hidden');
 
-  // Use current origin as cloud URL (since we're served from the cloud server)
+  // Served from the cloud server, so the origin is the API.
   const cloudUrl = window.location.origin;
 
-  conn.mode = 'relay';
+  try {
+    const resp = await fetch(`${cloudUrl}/api/me`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (!resp.ok) throw new Error('rejected');
+  } catch (_) {
+    if (errorEl) errorEl.classList.remove('hidden');
+    if (keyInput) { keyInput.disabled = false; keyInput.value = ''; keyInput.focus(); }
+    if (submitBtn) submitBtn.disabled = false;
+    return;
+  }
+
   conn.cloudUrl = cloudUrl;
   conn.cloudApiKey = apiKey;
-  localStorage.setItem('remote_conn_mode', 'relay');
   localStorage.setItem('remote_cloud_url', cloudUrl);
   localStorage.setItem('remote_cloud_api_key', apiKey);
 
   _showMain();
-  _openWS();
+  connSetState('connected');
+  _fetchCloudProjects();
+  _syncCloudSessions().then(() => { renderSessionBar(); _refreshControlIfActive(); });
 }
 
-function _detectCloudHosting() {
-  // If we're on a cloud server, auto-show cloud auth mode
-  // Detection: try /health endpoint - if it returns cloud:true, we're on a cloud server
-  return fetch('/health').then(r => r.json()).then(data => {
-    if (data && data.cloud === true && conn.mode !== 'relay') {
-      // We're hosted on a cloud server - set relay mode with current origin
-      conn.mode = 'relay';
-      conn.cloudUrl = window.location.origin;
-      localStorage.setItem('remote_conn_mode', 'relay');
-      localStorage.setItem('remote_cloud_url', conn.cloudUrl);
-      // Show cloud auth section (API key input) instead of PIN
-      const pinSection = $('auth-pin-section');
-      const cloudSection = $('auth-cloud-section');
-      if (pinSection && cloudSection) {
-        pinSection.classList.add('hidden');
-        cloudSection.classList.remove('hidden');
-        const ki = $('cloud-key-input');
-        if (ki) ki.focus();
-      }
-    }
-  }).catch(() => { /* Not on cloud, keep PIN mode */ });
-}
+// ─── Session Stream ───────────────────────────────────────────────────────────
+//
+// The cloud is the only peer. A socket exists only while a session is open: it
+// carries that session's events and nothing else, so there is no control
+// channel, no queue and no privileged-frame gate.
 
-// ─── WebSocket Connection ──────────────────────────────────────────────────────
-
-function _openWS() {
-  if (conn.ws && conn.ws.readyState === WebSocket.OPEN) return;
-  // Close stale connecting/closing socket before creating a new one
-  if (conn.ws) { try { conn.ws.close(); } catch (e) {} conn.ws = null; }
-  if (conn.retryTimer) { clearTimeout(conn.retryTimer); conn.retryTimer = null; }
-
-  // Relay mode: connect to cloud server directly with API key
-  if (conn.mode === 'relay') {
-    if (!conn.cloudUrl || !conn.cloudApiKey) { _showAuth(); return; }
-    connSetState('connecting');
-    const base = conn.cloudUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:').replace(/\/$/, '');
-    const wsUrl = `${base}/relay?role=mobile&token=${encodeURIComponent(conn.cloudApiKey)}`;
-    const ws = new WebSocket(wsUrl);
-    conn.ws = ws;
-  } else {
-    // LAN mode: standard local WS with session token
-    if (!conn.token) { _showAuth(); return; }
-    connSetState('connecting');
-    // Derive the scheme from the page: an https origin (e.g. `tailscale serve`)
-    // blocks a plain ws:// socket as mixed content.
-    const wsScheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsScheme}//${window.location.host}/ws?token=${conn.token}`;
-    const ws = new WebSocket(wsUrl);
-    conn.ws = ws;
-  }
-
-  const ws = conn.ws;
+function _openSessionStream(sessionId) {
+  if (!sessionId || !conn.cloudUrl || !conn.cloudApiKey) return null;
+  _closeSessionStream();
+  const base = conn.cloudUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:').replace(/\/$/, '');
+  const url = `${base}/api/sessions/${encodeURIComponent(sessionId)}/stream?token=${encodeURIComponent(conn.cloudApiKey)}`;
+  _debugLog('[Stream] opening', sessionId);
+  const ws = new WebSocket(url);
+  conn.ws = ws;
+  conn.streamSessionId = sessionId;
 
   ws.onopen = () => {
     conn.retryCount = 0;
-    _debugLog('[WS] Connected to relay');
     connSetState('connected');
     _requestNotificationPermission();
-    _wsFlushQueue();
   };
 
   ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      handleMessage(msg);
-    } catch (e) { console.error('[WS] parse error:', e); }
+    try { handleStreamMessage(JSON.parse(event.data)); }
+    catch (e) { console.error('[Stream] parse error:', e); }
   };
 
   ws.onclose = (e) => {
-    _debugLog('[WS] Closed:', e.code, e.reason);
+    _debugLog('[Stream] closed', e.code, e.reason);
+    if (conn.ws !== ws) return;   // superseded by a newer stream
     conn.ws = null;
-    // Auth failure
-    if (e.code === 4401 || e.code === 4003) {
-      const wasRelay = conn.mode === 'relay';
-      if (wasRelay) {
-        conn.cloudApiKey = '';
-        localStorage.removeItem('remote_cloud_api_key');
-      } else {
-        conn.token = null;
-        localStorage.removeItem('remote_session_token');
-      }
-      connSetState('auth');
-      _showAuth(wasRelay);
-      return;
+    // 1000/1005 is the server saying the session is over; anything else is a
+    // network blip on a session that may still be running, so retry.
+    if (e.code !== 1000 && e.code !== 1005 && conn.streamSessionId === sessionId) {
+      _scheduleStreamReconnect(sessionId);
+    } else {
+      conn.streamSessionId = null;
     }
-    // Kicked by administrator
-    if (e.code === 4403) {
-      conn.token = null;
-      localStorage.removeItem('remote_session_token');
-      connSetState('auth');
-      _showAuth(false);
-      const errEl = $('auth-error');
-      if (errEl) {
-        errEl.textContent = t('misc.disconnectedAdmin');
-        errEl.classList.remove('hidden');
-      }
-      return;
-    }
-    // Too many mobiles
-    if (e.code === 4002) {
-      const labelEl = $('status-label');
-      if (labelEl) labelEl.textContent = t('misc.tooManyMobile');
-      return;
-    }
-    if (conn.state !== 'auth') _scheduleReconnect();
   };
 
   // Never swallow this: a silent onerror is how a phone spends a whole session
-  // looking connected while every action falls on the floor.
+  // looking connected while every event falls on the floor.
   ws.onerror = (e) => {
-    console.warn('[WS] socket error', e?.message || e?.type || '');
+    console.warn('[Stream] socket error', e?.message || e?.type || '');
   };
+
+  return ws;
 }
 
-function _scheduleReconnect() {
-  if (conn.mode === 'relay') {
-    if (!conn.cloudUrl || !conn.cloudApiKey) return;
-  } else {
-    if (!conn.token) return;
+function _closeSessionStream() {
+  if (conn.retryTimer) { clearTimeout(conn.retryTimer); conn.retryTimer = null; }
+  if (conn.ws) {
+    const ws = conn.ws;
+    conn.ws = null;
+    try { ws.close(1000, 'switching session'); } catch (_) {}
   }
+  conn.streamSessionId = null;
+}
+
+function _scheduleStreamReconnect(sessionId) {
+  if (!conn.cloudApiKey) return;
   const delay = Math.min(1000 * Math.pow(2, conn.retryCount), 30000);
   conn.retryCount++;
   connSetState('reconnecting');
-  conn.retryTimer = setTimeout(() => { conn.retryTimer = null; _openWS(); }, delay);
+  conn.retryTimer = setTimeout(() => {
+    conn.retryTimer = null;
+    if (conn.streamSessionId === sessionId) _openSessionStream(sessionId);
+  }, delay);
 }
 
-function _onDesktopOffline() {
-  _debugLog('[State] Desktop offline, relay mode=' + conn.mode);
-  state.desktopOffline = true;
-  // Clear desktop sessions — they're no longer reachable
-  state.sessions = {};
-  state.selectedSessionId = null;
-  renderSessionBar(); renderChatMessages();
-  const labelEl = $('status-label');
-  if (labelEl) labelEl.textContent = t('misc.desktopOffline');
-  const dot = $('connection-dot');
-  if (dot) { dot.classList.add('disconnected'); dot.classList.remove('reconnecting'); }
-  // Show cloud popup if in relay mode (cloud server available)
-  if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
-    _showCloudPopup(true);
-    // Without a desktop the projects only exist on the server, so load them
-    // now: hanging that off the popup's CTA left the list empty for anyone who
-    // dismissed it, and a session with no project never shows up in the list.
-    _fetchCloudProjects();
-  }
-}
 
 /**
  * The name the cloud API answers to for a project.
@@ -663,13 +372,11 @@ function _onDesktopOffline() {
  * _fetchCloudProjects stores the server's canonical key in `path` and the
  * human-facing displayName in `name`. Every cloud endpoint addresses a project
  * by that key, so passing `name` fails with `Project "<displayName>" does not
- * exist`. Desktop projects keep their previous behaviour: their `path` is a
- * filesystem path, not a server key.
+ * exist`.
  */
 function _cloudProjectName(project) {
   if (!project) return '';
-  if (project._cloud) return project.path || '';
-  return project.name || project.path?.split(/[\\/]/).pop() || '';
+  return project.path || '';
 }
 
 async function _fetchCloudProjects() {
@@ -698,104 +405,6 @@ async function _fetchCloudProjects() {
   } catch (e) {
     console.error('[Cloud] Failed to fetch projects:', e);
   }
-}
-
-function _onRelayKicked() {
-  conn.ws = null;
-  connSetState('auth');
-  _showAuth();
-}
-
-// ─── Outbound Messages ────────────────────────────────────────────────────────
-
-// Types the desktop refuses without a session token. Mirrors
-// EXTERNAL_PRIVILEGED_TYPES in src/main/services/RemoteServer.js — kept here so
-// the PWA asks for the PIN up front instead of firing into a rejection.
-const RELAY_PRIVILEGED_TYPES = new Set([
-  'chat:send',
-  'chat:start',
-  'chat:interrupt',
-  'chat:permission-response',
-  'git:pull',
-  'git:push',
-  'settings:update',
-  'webhook:trigger',
-]);
-
-// The ONLY types held across a reconnect. All of them are idempotent reads whose
-// single effect is the server answering with fresh state, so replaying one late
-// is harmless.
-//
-// Everything else is dropped on a closed socket and reported to the caller. In
-// particular 'chat:permission-response' must NEVER be queued: a reconnect can be
-// minutes away on mobile, by which point the prompt it answers may have timed
-// out or been resolved on the desktop — replaying a blind "allow" against
-// whatever Claude is asking for *now* is the worst possible failure mode.
-// 'chat:send' / 'chat:start' / 'chat:interrupt' are dropped for a milder version
-// of the same reason (a prompt fired long after the user moved on, an interrupt
-// landing on a turn that already ended); they get an explicit retry affordance
-// instead, so the replay stays a user decision.
-const WS_QUEUEABLE_TYPES = new Set([
-  'request:init',
-  'git:status',
-  'mention:file-list',
-  'sessions:list-past',
-]);
-const WS_QUEUE_MAX = 20;
-const _wsQueue = [];
-
-/** Wrap a message; relay mode carries the desktop session token + client id. */
-function _wsEnvelope(type, data) {
-  const payload = { type, data };
-  if (conn.mode === 'relay') {
-    payload.clientId = conn.clientId;
-    if (conn.relayToken) payload.token = conn.relayToken;
-  }
-  return payload;
-}
-
-/**
- * Send a message to the desktop.
- * @returns {boolean} true if delivered (or safely queued for the next connect).
- *   false means the action did NOT happen — the caller must roll back whatever
- *   optimistic UI it already applied.
- */
-function wsSend(type, data) {
-  if (conn.mode === 'relay' && !conn.relayToken && RELAY_PRIVILEGED_TYPES.has(type)) {
-    console.warn('[WS] "' + type + '" needs an authenticated relay session — asking for the PIN');
-    _promptRelayPin();
-    return false;
-  }
-
-  if (conn.ws && conn.ws.readyState === 1) {
-    try {
-      conn.ws.send(JSON.stringify(_wsEnvelope(type, data)));
-      return true;
-    } catch (err) {
-      console.warn('[WS] send failed for "' + type + '":', err?.message || err);
-      return false;
-    }
-  }
-
-  if (WS_QUEUEABLE_TYPES.has(type)) {
-    const key = JSON.stringify(data ?? null);
-    const dup = _wsQueue.findIndex(q => q.type === type && q.key === key);
-    if (dup !== -1) _wsQueue.splice(dup, 1);
-    if (_wsQueue.length >= WS_QUEUE_MAX) _wsQueue.shift();
-    _wsQueue.push({ type, data, key });
-    console.warn('[WS] socket not open — queued "' + type + '" (' + _wsQueue.length + ' pending)');
-    return true;
-  }
-
-  console.warn('[WS] socket not open — dropped "' + type + '"');
-  return false;
-}
-
-function _wsFlushQueue() {
-  if (!_wsQueue.length) return;
-  const pending = _wsQueue.splice(0, _wsQueue.length);
-  _debugLog('[WS] Flushing ' + pending.length + ' queued message(s)');
-  for (const item of pending) wsSend(item.type, item.data);
 }
 
 /** Haptic acknowledgement that an action did not go through. */
@@ -833,160 +442,24 @@ function _showNotification(title, body, tag) {
   }
 }
 
-// ─── Message Router ───────────────────────────────────────────────────────────
+// ─── Stream Router ────────────────────────────────────────────────────────────
 
-function handleMessage(msg) {
-  const { type, data } = msg;
-  switch (type) {
-    case 'hello':
-      connSetState('connected');
-      // Server is authoritative — clear all local sessions, they'll be
-      // re-created by the session:started + chat-message replay that follows
-      state.sessions = {};
-      state.selectedSessionId = null;
-      if (data.chatModel) { state.selectedModel = data.chatModel; }
-      if (data.effortLevel) { state.selectedEffort = data.effortLevel; }
-      if (data.accentColor) _applyAccentColor(data.accentColor);
-      if (data.language) i18n.setLang(data.language);
-      _updatePlusMenuSelection();
-      renderSessionBar(); renderChatMessages();
-      break;
-    case 'projects:updated':     onProjectsUpdated(data); break;
-    case 'session:started':      onSessionStarted(data); break;
-    case 'session:tab-renamed':  onTabRenamed(data); break;
-    case 'session:closed':       onSessionClosed(data); break;
-    case 'chat-message':         onChatMessage(data); break;
-    case 'chat-user-message':    onChatUserMessage(data); break;
-    case 'chat-idle':            onChatIdle(data); break;
-    case 'chat-done':            onChatDone(data); break;
-    case 'chat-error':           onChatError(data); break;
-    case 'chat-permission-request': onPermissionRequest(data); break;
-    case 'time:update':          onTimeUpdate(data); break;
-    case 'git:status':           onGitStatus(data); break;
-    case 'git:pull':             onGitResult('pull', data); break;
-    case 'git:push':             onGitResult('push', data); break;
-    case 'mention:file-list':    onFileList(data); break;
-    case 'sessions:past':        onPastSessions(data); break;
-    case 'settings:updated':     break; // ack, nothing to do
-    case 'pong': break;
-    // Relay session auth (see _submitPinOverRelay)
-    case 'auth:result':          _onRelayAuthResult(data); break;
-    case 'remote:rejected':      _onRemoteRejected(data); break;
-    // Relay-specific events
-    case 'relay:desktop-online':
-      _debugLog('[Relay] Desktop came online');
-      state.desktopOffline = false;
-      connSetState('connected');
-      _showCloudPopup(false);
-      _showHeadlessBanner(false);
-      _cleanupHeadlessSession();
-      // Clear cloud/headless sessions — desktop will resend its own via request:init
-      state.sessions = {};
-      state.selectedSessionId = null;
-      renderSessionBar(); renderChatMessages();
-      // Ask the desktop to send init data (projects, sessions, time)
-      wsSend('request:init', {});
-      break;
-    case 'relay:desktop-offline': _onDesktopOffline(); break;
-    case 'relay:kicked':          _onRelayKicked(); break;
-    // Cloud session stream events routed through relay WS
-    case 'stream':
-      if (msg.data) {
-        _debugLog('[Stream] Relay event:', msg.data.type, msg.data.event?.type || '');
-        // Events for a session this device never saw mean it was started
-        // elsewhere. Adopt it rather than rendering nothing while it runs.
-        if (msg.sessionId && !state.sessions[`headless-${msg.sessionId}`]) {
-          _syncCloudSessions().then(() => { renderSessionBar(); _refreshControlIfActive(); });
-        }
-        _handleHeadlessEvent(msg.data);
-      }
-      break;
+/**
+ * Frames from `/api/sessions/:id/stream`, delivered bare as
+ * `{ type: 'event' | 'idle' | 'done' | 'error', sessionId, ... }`.
+ */
+function handleStreamMessage(msg) {
+  if (!msg || !msg.type) return;
+  _debugLog('[Stream]', msg.type, msg.event?.type || '');
+  // An event for a session this device never saw means it was started
+  // elsewhere. Adopt it rather than rendering nothing while it runs.
+  if (msg.sessionId && !state.sessions[`headless-${msg.sessionId}`]) {
+    _syncCloudSessions().then(() => { renderSessionBar(); _refreshControlIfActive(); });
   }
+  _handleHeadlessEvent(msg);
 }
 
 // ─── Server Events ────────────────────────────────────────────────────────────
-
-function onProjectsUpdated({ projects, folders, rootOrder }) {
-  state.projects = projects || [];
-  state.folders = folders || [];
-  state.rootOrder = rootOrder || [];
-  // Update any sessions that were created before projects arrived (race condition)
-  for (const session of Object.values(state.sessions)) {
-    if (session.projectId && session.tabName === 'Chat') {
-      const project = state.projects.find(p => p.id === session.projectId);
-      if (project) session.tabName = project.name;
-    }
-  }
-  // Update project hub header if in project hub
-  if (state.inProjectHub && state.selectedProjectId) {
-    const project = state.projects.find(p => p.id === state.selectedProjectId);
-    if (project) {
-      const title = $('header-title');
-      if (title && title.textContent === 'Project') {
-        title.textContent = project.name;
-        title.style.color = project.color || '';
-      }
-    }
-  }
-  renderProjectsList();
-  renderDashboard();
-}
-
-function onSessionStarted({ sessionId, projectId, tabName }) {
-  const messages = [];
-  if (state._pendingUserMessage) {
-    messages.push({ role: 'user', content: state._pendingUserMessage });
-    state._pendingUserMessage = null;
-  }
-  if (!state.sessions[sessionId]) {
-    state.sessions[sessionId] = _makeSession(sessionId, projectId, tabName, messages);
-  }
-  if (!state.selectedSessionId || projectId === state.selectedProjectId) {
-    state.selectedSessionId = sessionId;
-    state.selectedProjectId = projectId;
-  }
-  if (!state.inProjectHub && projectId) {
-    enterProjectHub(projectId);
-    switchView('chat'); // go straight to chat for new session
-  } else if (state.currentView === 'sessions') {
-    renderSessionsView(); // refresh tabs list
-  } else if (state.currentView !== 'chat') {
-    switchView('chat');
-  } else {
-    renderSessionBar(); renderChatMessages();
-  }
-  _saveSessions();
-}
-
-function onTabRenamed({ sessionId, tabName }) {
-  const session = state.sessions[sessionId];
-  if (session && tabName) {
-    session.tabName = tabName;
-    if (state.currentView === 'sessions') renderSessionsView();
-    _refreshControlIfActive();
-    // Update session bar if active
-    if (state.selectedSessionId === sessionId) renderSessionBar();
-  }
-}
-
-function onSessionClosed({ sessionId }) {
-  if (!sessionId || !state.sessions[sessionId]) return;
-  delete state.sessions[sessionId];
-  // If the closed session was selected, pick another or clear
-  if (state.selectedSessionId === sessionId) {
-    const remaining = Object.values(state.sessions).filter(s => s.projectId === state.selectedProjectId);
-    state.selectedSessionId = remaining.length ? remaining[0].sessionId : null;
-  }
-  _saveSessions();
-  if (state.currentView === 'sessions') renderSessionsView();
-  if (state.currentView === 'chat') renderChatView();
-  if (state.currentView === 'control') renderControlView();
-}
-
-function onTimeUpdate({ todayMs }) {
-  state.todayMs = todayMs || 0;
-  renderDashboard();
-}
 
 // ─── Chat Message Handler (mirrors ChatView.js SDK format) ────────────────────
 
@@ -1017,35 +490,6 @@ function _makeSession(sessionId, projectId, tabName, messages) {
     currentBlockIdx: -1,
     currentBlockType: null,
   };
-}
-
-function onChatMessage({ sessionId, message }) {
-  if (!message) return;
-  const session = _getOrCreateSession(sessionId);
-  const type = message.type;
-
-  // Auto-select this session if none selected and it belongs to the current project
-  if (!state.selectedSessionId && session.projectId === state.selectedProjectId) {
-    state.selectedSessionId = sessionId;
-    if (state.currentView === 'chat') renderSessionBar();
-  }
-
-  if (type === 'system') return;
-
-  if (type === 'stream_event' && message.event) {
-    _handleStreamEvent(session, sessionId, message.event);
-    return;
-  }
-
-  if (type === 'assistant') {
-    _handleAssistantMessage(session, sessionId, message);
-    return;
-  }
-
-  if (type === 'result') {
-    _handleResult(session, sessionId, message);
-    return;
-  }
 }
 
 // ── Stream Event Handler ──
@@ -1271,110 +715,7 @@ function _updateLiveToolCard(session, sessionId, blockIdx) {
 
 // ── User message from desktop ──
 
-function onChatUserMessage({ sessionId, text, images }) {
-  const session = _getOrCreateSession(sessionId);
-  // Avoid duplicate if this client sent the message
-  const lastMsg = session.messages[session.messages.length - 1];
-  if (lastMsg?.role === 'user' && lastMsg.content === text) return;
-  const imageCount = typeof images === 'number' ? images : (Array.isArray(images) ? images.length : 0);
-  const imageLabel = imageCount > 0 ? ` (${imageCount} image${imageCount > 1 ? 's' : ''})` : '';
-  let content = text || '';
-  if (imageLabel) content += imageLabel;
-  if (!content) content = t('chat.imageAttached');
-  session.messages.push({ role: 'user', content });
-  _renderIfActive(sessionId);
-}
-
 // ── Chat-idle / done / error / permission ──
-
-function onChatIdle({ sessionId, projectId }) {
-  const session = _getOrCreateSession(sessionId, projectId);
-  if (!session.projectId && projectId) session.projectId = projectId;
-  session.status = 'active';
-  session.lastActivity = t('status.claudeWorking');
-  _refreshControlIfActive();
-  if (!state.selectedSessionId) {
-    state.selectedSessionId = sessionId;
-    state.selectedProjectId = projectId || state.selectedProjectId;
-    if (!state.inProjectHub && projectId) {
-      enterProjectHub(projectId);
-      switchView('chat');
-    } else if (state.currentView === 'sessions') {
-      renderSessionsView();
-    } else if (state.currentView !== 'chat') {
-      switchView('chat');
-    } else {
-      renderSessionBar();
-    }
-  }
-  _setThinking(sessionId, true);
-  setInputState('sending');
-}
-
-function onChatDone({ sessionId }) {
-  const session = state.sessions[sessionId];
-  if (!session) return;
-  _finalizeStream(session);
-  _setThinking(sessionId, false);
-  session.status = 'idle';
-  session.lastActivity = t('status.done');
-  _refreshControlIfActive();
-  setInputState('idle');
-  _renderIfActive(sessionId);
-  _saveSessions();
-  if (state.currentView !== 'chat') $('chat-badge')?.classList.remove('hidden');
-  _showNotification(
-    t('status.claudeFinished'),
-    session.tabName || 'Chat',
-    `done-${sessionId}`
-  );
-}
-
-function onChatError({ sessionId, error }) {
-  const session = state.sessions[sessionId];
-  if (session) {
-    _finalizeStream(session);
-    session.messages.push({ role: 'error', content: error || 'Unknown error' });
-    session.status = 'error';
-    session.lastActivity = error || 'Error';
-    _refreshControlIfActive();
-  }
-  _setThinking(sessionId, false);
-  setInputState('idle');
-  _renderIfActive(sessionId);
-  _saveSessions();
-  if (state.currentView !== 'chat') $('chat-badge')?.classList.remove('hidden');
-  _showNotification(
-    t('status.claudeError'),
-    (error || '').slice(0, 80),
-    `error-${sessionId}`
-  );
-}
-
-function onPermissionRequest(data) {
-  // Insert permission as inline message in the active session
-  const session = data.sessionId ? _getOrCreateSession(data.sessionId) : null;
-  if (session) {
-    session.messages.push({
-      role: 'permission',
-      content: data.toolName || 'Tool',
-      permData: data,
-    });
-    session.status = 'permission';
-    session.lastActivity = `${t('status.permPrefix')} ${data.toolName || 'Tool'}`;
-    _refreshControlIfActive();
-  }
-  state.pendingPermissions.set(data.requestId, data);
-  _renderIfActive(data.sessionId);
-  if (state.currentView !== 'chat') $('chat-badge')?.classList.remove('hidden');
-  const toolName = data.toolName || 'Tool';
-  _showNotification(
-    t('status.permRequired'),
-    toolName,
-    `perm-${data.requestId}`
-  );
-  if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
-}
 
 // ─── Streaming Helpers ────────────────────────────────────────────────────────
 
@@ -1440,7 +781,7 @@ function _scrollToBottom(container) {
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
 const GLOBAL_VIEWS = ['projects', 'chat', 'control', 'dashboard'];
-const PROJECT_VIEWS = ['sessions', 'git'];
+const PROJECT_VIEWS = ['sessions'];
 
 function setupProjectSearch() {
   const input = $('projects-search');
@@ -1496,9 +837,6 @@ function switchView(view) {
   if (view === 'control') {
     renderControlView();
   }
-  if (view === 'git') {
-    renderGitView();
-  }
 }
 
 // ── Project Hub (full-screen project mode) ──
@@ -1506,7 +844,6 @@ function switchView(view) {
 function enterProjectHub(projectId) {
   state.selectedProjectId = projectId;
   state.inProjectHub = true;
-  state.fileList = []; // Clear stale file list from previous project
 
   const project = state.projects.find(p => p.id === projectId);
 
@@ -1522,12 +859,6 @@ function enterProjectHub(projectId) {
   // Switch nav groups
   $('nav-global')?.classList.add('hidden');
   $('nav-project')?.classList.remove('hidden');
-
-  // Show git actions in header
-  $('header-git-actions')?.classList.remove('hidden');
-
-  // Reset git data for new project
-  _gitData = null;
 
   switchView('sessions');
   requestPastSessions(projectId);
@@ -1545,14 +876,10 @@ function backToProjects() {
   // Hide header on global views
   document.querySelector('.app-header')?.classList.add('hidden');
   $('header-back')?.classList.add('hidden');
-  $('header-git-actions')?.classList.add('hidden');
 
   // Switch nav groups
   $('nav-global')?.classList.remove('hidden');
   $('nav-project')?.classList.add('hidden');
-
-  // Hide git actions
-  $('header-git-actions')?.classList.add('hidden');
 
   switchView('projects');
 }
@@ -1694,25 +1021,11 @@ function createNewSession() {
 
 // ─── Past Sessions (Resume) ──────────────────────────────────────────────────
 
-function onPastSessions(data) {
-  if (data.projectId) {
-    state.pastSessions[data.projectId] = data.sessions || [];
-    if (state.currentView === 'sessions') renderSessionsView();
-  }
-}
-
 function requestPastSessions(projectId) {
-  // Desktop online: ask via WS
-  if (!state.desktopOffline) {
-    wsSend('sessions:list-past', { projectId });
-  }
-  // Cloud mode: also fetch from cloud API
-  if (conn.cloudUrl && conn.cloudApiKey) {
-    const project = state.projects.find(p => p.id === projectId);
-    if (!project) return;
-    const projectName = _cloudProjectName(project);
-    _fetchCloudPastSessions(projectId, projectName);
-  }
+  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  _fetchCloudPastSessions(projectId, _cloudProjectName(project));
 }
 
 async function _fetchCloudPastSessions(projectId, projectName) {
@@ -1724,7 +1037,8 @@ async function _fetchCloudPastSessions(projectId, projectName) {
     if (!resp.ok) return;
     const { sessions } = await resp.json();
     if (!sessions?.length) return;
-    // Merge with existing past sessions (desktop ones), avoiding duplicates
+    // Re-fetch is idempotent: merge instead of replacing so a second call does
+    // not drop what the first one already rendered.
     const existing = state.pastSessions[projectId] || [];
     const existingIds = new Set(existing.map(s => s.sessionId));
     const merged = [...existing, ...sessions.filter(s => !existingIds.has(s.sessionId))];
@@ -1747,32 +1061,14 @@ function resumePastSession(sessionId, projectId) {
     card.style.pointerEvents = 'none';
   }
 
-  // Cloud/headless mode: resume via cloud API
-  if (state.desktopOffline && conn.cloudUrl && conn.cloudApiKey) {
-    const projectName = _cloudProjectName(project);
-    _startHeadlessSession(projectName, 'Continue from where we left off.', sessionId).catch(() => {
-      // Restore card on failure (banner already shows error via _startHeadlessSession)
-      if (card) {
-        card.style.opacity = '';
-        card.style.pointerEvents = '';
-      }
-    });
-    return;
-  }
-
-  // Desktop mode: resume via WS relay. Send first — on failure the card must go
-  // back to being tappable instead of staying dimmed and inert.
-  if (!wsSend('chat:start', { cwd: project.path, resumeSessionId: sessionId })) {
+  const projectName = _cloudProjectName(project);
+  _startHeadlessSession(projectName, 'Continue from where we left off.', sessionId).catch(() => {
+    // Restore card on failure (the banner already shows the error)
     if (card) {
       card.style.opacity = '';
       card.style.pointerEvents = '';
     }
-    _flashSendFailure();
-    return;
-  }
-  state.selectedSessionId = null;
-  switchView('chat');
-  renderChatView();
+  });
 }
 
 function _formatTimeAgo(isoDate) {
@@ -2008,17 +1304,9 @@ function _setupChatDelegation() {
   const container = $('chat-messages');
   if (!container) return;
   container.addEventListener('click', (e) => {
-    // Resend a message that never left the device
-    const retryBtn = e.target.closest('.btn-retry-send');
-    if (retryBtn) { e.stopPropagation(); _retryFailedSend(retryBtn.dataset.retryId); return; }
     // Tool card expand
     const toolCard = e.target.closest('.tool-card.expandable');
     if (toolCard) { _toggleToolExpand(toolCard); return; }
-    // Permission allow/deny
-    const allowBtn = e.target.closest('.btn-allow');
-    if (allowBtn) { e.stopPropagation(); const perm = allowBtn.closest('.perm-inline'); if (perm) _respondInlinePermission(perm, true); return; }
-    const denyBtn = e.target.closest('.btn-deny');
-    if (denyBtn) { e.stopPropagation(); const perm = denyBtn.closest('.perm-inline'); if (perm) _respondInlinePermission(perm, false); return; }
   });
 }
 
@@ -2092,16 +1380,7 @@ function renderChatMessages() {
 
 function _renderMessage(m) {
   if (m.role === 'user') {
-    const imgHtml = m.imageUrl ? `<img class="chat-user-image" src="${m.imageUrl}" alt="Attached image">` : '';
-    const mentionHtml = m.mentionLabels?.length
-      ? `<div class="chat-user-mentions">${m.mentionLabels.map(l => `<span class="chat-user-mention">${escHtml(l)}</span>`).join('')}</div>`
-      : '';
-    const bubble = `<div class="chat-msg user${m.failed ? ' failed' : ''}"${m.failed ? ' style="opacity:0.55"' : ''}>${escHtml(m.content)}${mentionHtml}${imgHtml}</div>`;
-    if (!m.failed) return bubble;
-    // Dead spinners are worse than an error: say it was not sent, and offer the resend.
-    return bubble + `<div class="chat-msg error-msg">${escHtml(t('chat.notSentOffline'))}
-      <button class="btn-allow btn-retry-send" data-retry-id="${escHtml(m.retryId || '')}" style="margin-left:8px;padding:4px 12px;border:none;border-radius:6px;font-size:12px;cursor:pointer">${escHtml(t('misc.retry'))}</button>
-    </div>`;
+    return `<div class="chat-msg user">${escHtml(m.content)}</div>`;
   }
 
   if (m.role === 'assistant') {
@@ -2111,10 +1390,6 @@ function _renderMessage(m) {
 
   if (m.role === 'tool') {
     return _renderToolCard(m);
-  }
-
-  if (m.role === 'permission') {
-    return _renderInlinePermission(m);
   }
 
   if (m.role === 'error') {
@@ -2211,68 +1486,6 @@ function _formatToolExpandContent(m) {
   return html || `<div class="tool-expand-section" style="color:var(--text-muted);font-size:12px">${t('misc.noDetails')}</div>`;
 }
 
-// ── Inline Permission Rendering ──
-
-function _renderInlinePermission(m) {
-  const perm = m.permData;
-  if (!perm) return '';
-  let desc = '';
-  try {
-    desc = Object.entries(perm.input || {}).map(([k, v]) =>
-      `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`
-    ).join('\n');
-  } catch (e) {}
-
-  const resolved = !state.pendingPermissions.has(perm.requestId);
-
-  return `<div class="perm-inline ${resolved ? 'resolved' : ''}" data-request-id="${escHtml(perm.requestId || '')}">
-    <div class="perm-inline-header">
-      <span class="perm-inline-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      </span>
-      <span class="perm-inline-tool">${escHtml(perm.toolName || 'Tool')}</span>
-    </div>
-    ${desc ? `<pre class="perm-inline-desc">${escHtml(_truncate(desc, 200))}</pre>` : ''}
-    ${resolved
-      ? `<div class="perm-inline-resolved">${escHtml(t('perm.resolved'))}</div>`
-      : `<div class="perm-inline-actions">
-          <button class="btn-action btn-allow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ${t('misc.allow')}</button>
-          <button class="btn-action btn-deny"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> ${t('misc.deny')}</button>
-        </div>`
-    }
-  </div>`;
-}
-
-function _respondInlinePermission(el, allow) {
-  const requestId = el.dataset.requestId;
-  if (!requestId || !state.pendingPermissions.has(requestId)) return;
-  navigator.vibrate?.(10);
-  const sent = wsSend('chat:permission-response', {
-    requestId,
-    result: { behavior: allow ? 'allow' : 'deny' },
-  });
-  if (!sent) {
-    // Never queued for later: by the time the socket is back the prompt may have
-    // timed out or been answered on the desktop, and a replayed "allow" would
-    // land on whatever Claude is asking for now. Keep it pending and let the
-    // user decide again once reconnected.
-    let err = el.querySelector('.perm-send-error');
-    if (!err) {
-      err = document.createElement('div');
-      err.className = 'perm-send-error';
-      err.style.cssText = 'color:var(--danger);font-size:12px;margin-top:6px';
-      el.appendChild(err);
-    }
-    err.textContent = t('chat.notSentReconnecting');
-    _flashSendFailure();
-    return;
-  }
-  state.pendingPermissions.delete(requestId);
-  el.classList.add('resolved');
-  const actionsEl = el.querySelector('.perm-inline-actions');
-  if (actionsEl) actionsEl.innerHTML = `<div class="perm-inline-resolved">${escHtml(allow ? t('perm.allowed') : t('perm.denied'))}</div>`;
-}
-
 // ─── Chat Input ───────────────────────────────────────────────────────────────
 
 function setupChatInput() {
@@ -2304,24 +1517,6 @@ function setupChatInput() {
 
 // ─── Autocomplete System (Slash Commands + Mentions) ─────────────────────────
 
-const _MENTION_ICONS = {
-  file: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
-  git: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>',
-  terminal: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
-  errors: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
-  todos: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
-};
-
-function _getMentionTypes() {
-  return [
-    { type: 'file', label: '@file', desc: t('mention.file'), icon: _MENTION_ICONS.file, hasPicker: true },
-    { type: 'git', label: '@git', desc: t('mention.git'), icon: _MENTION_ICONS.git },
-    { type: 'terminal', label: '@terminal', desc: t('mention.terminal'), icon: _MENTION_ICONS.terminal },
-    { type: 'errors', label: '@errors', desc: t('mention.errors'), icon: _MENTION_ICONS.errors },
-    { type: 'todos', label: '@todos', desc: t('mention.todos'), icon: _MENTION_ICONS.todos },
-  ];
-}
-
 function _getSlashDefaults() {
   return [
     { cmd: '/compact', desc: t('slash.compact') },
@@ -2330,40 +1525,18 @@ function _getSlashDefaults() {
   ];
 }
 
-let _acMode = null; // 'slash' | 'mention-types' | 'mention-file' | null
+let _acMode = null; // 'slash' | null
 let _acIndex = 0;
 let _acItems = [];
-let _pendingMentions = []; // [{type, label, icon, data?}]
 
 function _updateAutocomplete() {
   const input = $('chat-input');
   if (!input) return;
   const text = input.value;
-  const cursor = input.selectionStart;
-  const before = text.substring(0, cursor);
 
   // Slash commands: / at start, no space yet
   if (text.startsWith('/') && !text.includes(' ') && !text.includes('\n')) {
     _showSlashDropdown(text.slice(1).toLowerCase());
-    return;
-  }
-
-  // File picker mode: @file followed by space + query
-  if (_acMode === 'mention-file') {
-    const match = before.match(/@file\s+(.*)$/i);
-    if (match) {
-      _showFilePicker(match[1]);
-      return;
-    }
-    // Lost the @file prefix — exit picker
-    _hideAutocomplete();
-    return;
-  }
-
-  // Mention types: @ at word boundary
-  const atMatch = before.match(/@(\w*)$/);
-  if (atMatch) {
-    _showMentionTypes(atMatch[1].toLowerCase());
     return;
   }
 
@@ -2397,53 +1570,6 @@ function _showSlashDropdown(query) {
   _bindAcClicks();
 }
 
-function _showMentionTypes(query) {
-  const filtered = _getMentionTypes().filter(m => m.type.includes(query));
-  if (!filtered.length) { _hideAutocomplete(); return; }
-
-  _acMode = 'mention-types';
-  _acItems = filtered;
-  _acIndex = Math.min(_acIndex, filtered.length - 1);
-
-  const dd = $('autocomplete-dropdown');
-  dd.innerHTML = filtered.map((m, i) => `
-    <div class="ac-item${i === _acIndex ? ' active' : ''}" data-idx="${i}">
-      <span class="ac-icon">${m.icon}</span>
-      <span class="ac-cmd">${escHtml(m.label)}</span>
-      <span class="ac-desc">${escHtml(m.desc)}</span>
-    </div>
-  `).join('');
-  dd.classList.remove('hidden');
-  _bindAcClicks();
-}
-
-function _showFilePicker(query) {
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? state.fileList.filter(f => f.path.toLowerCase().includes(q))
-    : state.fileList;
-  const shown = filtered.slice(0, 30);
-
-  _acMode = 'mention-file';
-  _acItems = shown;
-  _acIndex = Math.min(_acIndex, Math.max(shown.length - 1, 0));
-
-  const dd = $('autocomplete-dropdown');
-  if (!shown.length) {
-    dd.innerHTML = `<div class="ac-item ac-empty">${t('chat.noFiles')}</div>`;
-    dd.classList.remove('hidden');
-    return;
-  }
-  dd.innerHTML = shown.map((f, i) => `
-    <div class="ac-item${i === _acIndex ? ' active' : ''}" data-idx="${i}">
-      <span class="ac-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-      <span class="ac-file-path">${escHtml(f.path)}</span>
-    </div>
-  `).join('');
-  dd.classList.remove('hidden');
-  _bindAcClicks();
-}
-
 let _acDelegationSet = false;
 function _bindAcClicks() {
   if (_acDelegationSet) return;
@@ -2466,38 +1592,6 @@ function _selectAcItem() {
     input.value = item.cmd;
     input.focus();
     _hideAutocomplete();
-  } else if (_acMode === 'mention-types') {
-    const item = _acItems[_acIndex];
-    if (!item) return;
-    if (item.hasPicker) {
-      // Switch to file picker mode
-      const input = $('chat-input');
-      const cursor = input.selectionStart;
-      const before = input.value.substring(0, cursor);
-      const after = input.value.substring(cursor);
-      const cleaned = before.replace(/@\w*$/, '@file ');
-      input.value = cleaned + after;
-      input.selectionStart = input.selectionEnd = cleaned.length;
-      _acMode = 'mention-file';
-      _acIndex = 0;
-      // Request file list from server if not cached
-      if (!state.fileList.length) _requestFileList();
-      _showFilePicker('');
-      input.focus();
-    } else {
-      // Direct mention — add chip
-      _removeAtTrigger();
-      _addMentionChip(item.type, item.label, item.icon);
-      _hideAutocomplete();
-      $('chat-input')?.focus();
-    }
-  } else if (_acMode === 'mention-file') {
-    const item = _acItems[_acIndex];
-    if (!item) return;
-    _removeAtTrigger();
-    _addMentionChip('file', `@${item.path}`, _getMentionTypes()[0].icon, { path: item.path, fullPath: item.fullPath });
-    _hideAutocomplete();
-    $('chat-input')?.focus();
   }
 }
 
@@ -2550,290 +1644,56 @@ function _highlightAcItem(items) {
   items[_acIndex]?.scrollIntoView({ block: 'nearest' });
 }
 
-function _removeAtTrigger() {
-  const input = $('chat-input');
-  if (!input) return;
-  const cursor = input.selectionStart;
-  const before = input.value.substring(0, cursor);
-  const after = input.value.substring(cursor);
-  // Remove @word or @file ... from before cursor
-  const cleaned = before.replace(/@\w*(\s+\S*)?$/, '');
-  input.value = cleaned + after;
-  input.selectionStart = input.selectionEnd = cleaned.length;
-}
-
-// ─── Mention Chips ─────────────────────────────────────────────────────────────
-
-function _addMentionChip(type, label, icon, data) {
-  _pendingMentions.push({ type, label, icon, data: data || null });
-  _renderMentionChips();
-}
-
-function _removeMentionChip(idx) {
-  _pendingMentions.splice(idx, 1);
-  _renderMentionChips();
-}
-
-function _renderMentionChips() {
-  const container = $('mention-chips');
-  if (!container) return;
-  if (!_pendingMentions.length) {
-    container.classList.add('hidden');
-    container.innerHTML = '';
-    return;
-  }
-  container.classList.remove('hidden');
-  container.innerHTML = _pendingMentions.map((chip, i) => `
-    <span class="mention-chip">
-      <span class="mention-chip-icon">${chip.icon}</span>
-      <span class="mention-chip-label">${escHtml(chip.label)}</span>
-      <button class="mention-chip-remove" data-idx="${i}">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </span>
-  `).join('');
-  // Delegation is set up once in _setupMentionChipsDelegation()
-}
-
-function _setupMentionChipsDelegation() {
-  const container = $('mention-chips');
-  if (!container) return;
-  container.addEventListener('click', (e) => {
-    const btn = e.target.closest('.mention-chip-remove');
-    if (!btn) return;
-    e.stopPropagation();
-    _removeMentionChip(parseInt(btn.dataset.idx));
-  });
-}
-
-function _requestFileList() {
-  wsSend('mention:file-list', { projectId: state.selectedProjectId });
-}
-
-function onFileList(data) {
-  state.fileList = data.files || [];
-  // Refresh the picker if we're in file picker mode
-  if (_acMode === 'mention-file') {
-    const input = $('chat-input');
-    const cursor = input?.selectionStart || 0;
-    const before = (input?.value || '').substring(0, cursor);
-    const match = before.match(/@file\s+(.*)$/i);
-    _showFilePicker(match ? match[1] : '');
-  }
-}
-
 function updateSendBtn() {
   const input = $('chat-input');
   const sendBtn = $('send-btn');
-  const hasContent = !!(input?.value.trim() || _pendingImage || _pendingMentions.length);
+  const hasContent = !!input?.value.trim();
   const hasTarget = !!(state.selectedSessionId || state.selectedProjectId);
   if (sendBtn) sendBtn.disabled = !hasContent || !hasTarget;
 }
 
-// ─── Image Attachment ─────────────────────────────────────────────────────────
-
-let _pendingImage = null; // { base64, mediaType, dataUrl }
-
-function openCamera() {
-  $('plus-menu')?.classList.add('hidden');
-  $('camera-input')?.click();
-}
-
-function openGallery() {
-  $('plus-menu')?.classList.add('hidden');
-  $('gallery-input')?.click();
-}
-
-function _setupImageInputs() {
-  $('camera-input')?.addEventListener('change', _handleImagePick);
-  $('gallery-input')?.addEventListener('change', _handleImagePick);
-}
-
-function _handleImagePick(e) {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  e.target.value = ''; // reset so same file can be picked again
-
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = reader.result;
-    const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-    if (!match) return;
-    _pendingImage = {
-      mediaType: match[1],
-      base64: match[2],
-      dataUrl,
-    };
-    _showImagePreview(dataUrl);
-    updateSendBtn();
-  };
-  reader.readAsDataURL(file);
-}
-
-function _showImagePreview(dataUrl) {
-  const bar = $('image-preview-bar');
-  const img = $('image-preview-img');
-  if (bar && img) {
-    img.src = dataUrl;
-    bar.classList.remove('hidden');
-  }
-}
-
-function removeImage() {
-  _pendingImage = null;
-  const bar = $('image-preview-bar');
-  if (bar) bar.classList.add('hidden');
-  updateSendBtn();
-}
-
 // ─── Send Message ─────────────────────────────────────────────────────────────
 
+/**
+ * Everything the composer can send goes to the cloud API, which accepts a plain
+ * text prompt and nothing else: no images, no mention payloads. A first message
+ * creates the session; later ones are follow-ups on it.
+ */
 function sendMessage() {
   const input = $('chat-input');
   const text = input.value.trim();
-  const image = _pendingImage;
-  const mentions = _pendingMentions.length ? [..._pendingMentions] : [];
-  if (!text && !image && !mentions.length) return;
+  if (!text) return;
 
   navigator.vibrate?.(10);
   _hideAutocomplete();
-  _debugLog('[Send] cloudMode=' + state.cloudSessionMode, 'headlessId=' + state._headlessSessionId, 'offline=' + state.desktopOffline, 'relay=' + conn.mode);
 
-  // Headless cloud mode: follow-up messages go to cloud API
-  if (state.cloudSessionMode && state._headlessSessionId) {
+  // Follow-up on the session that is already running.
+  if (state.activeSessionId) {
     input.value = '';
     input.style.height = 'auto';
-    _clearImageAfterSend();
-    _clearMentionsAfterSend();
     _sendHeadlessMessage(text);
     updateSendBtn();
     return;
   }
 
-  // Desktop offline in relay mode: start a headless session
-  if (state.desktopOffline && conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
-    const project = state.projects.find(p => p.id === state.selectedProjectId);
-    if (!project) return;
-    const projectName = _cloudProjectName(project);
-    input.value = '';
-    input.style.height = 'auto';
-    _clearImageAfterSend();
-    _clearMentionsAfterSend();
-    _startHeadlessSession(projectName, text);
-    updateSendBtn();
-    return;
-  }
-
-  // Build images array for WS
-  const images = image ? [{ base64: image.base64, mediaType: image.mediaType }] : [];
-  // Build mentions array for WS (type + data)
-  const mentionsPayload = mentions.map(m => ({ type: m.type, data: m.data || null }));
-
-  if (!state.selectedSessionId) {
-    const project = state.projects.find(p => p.id === state.selectedProjectId);
-    if (!project) return;
-    state._pendingUserMessage = text || (image ? t('chat.imageAttached') : mentions.map(m => m.label).join(' '));
-    // Send BEFORE touching the composer: there is no transcript yet to hang a
-    // failed bubble on, so the cheapest correct rollback is having cleared nothing.
-    const started = wsSend('chat:start', {
-      cwd: project.path,
-      prompt: text || '',
-      images,
-      mentions: mentionsPayload,
-      model: state.selectedModel,
-      effort: state.selectedEffort,
-    });
-    if (!started) {
-      state._pendingUserMessage = null;
-      _flashSendFailure();
-      return;
-    }
-    input.value = '';
-    input.style.height = 'auto';
-    _clearImageAfterSend();
-    _clearMentionsAfterSend();
-    setInputState('sending');
-    updateSendBtn();
-    return;
-  }
-
-  const sessionId = state.selectedSessionId;
-  const sendData = { sessionId, text: text || '', images, mentions: mentionsPayload };
-  const sent = wsSend('chat:send', sendData);
-  const session = state.sessions[sessionId];
-
-  // No transcript to report into — leave the composer untouched so nothing is lost.
-  if (!sent && !session) { _flashSendFailure(); return; }
-
-  if (session) {
-    session.messages.push({
-      role: 'user',
-      content: text || t('chat.imageAttached'),
-      imageUrl: image?.dataUrl || null,
-      mentionLabels: mentions.map(m => m.label),
-      failed: !sent,
-      retryId: sent ? null : _registerFailedSend('chat:send', sendData),
-    });
-    renderChatMessages();
-    _saveSessions();
-  }
+  const project = state.projects.find(p => p.id === state.selectedProjectId);
+  if (!project) return;
   input.value = '';
   input.style.height = 'auto';
-  _clearImageAfterSend();
-  _clearMentionsAfterSend();
-  // Only claim a turn is running when one actually is — the spinner-that-never-
-  // resolves is exactly the bug this guards.
-  setInputState(sent ? 'sending' : 'idle');
-  if (!sent) _flashSendFailure();
+  _startHeadlessSession(_cloudProjectName(project), text).catch(() => {});
   updateSendBtn();
-}
-
-// ── Failed sends (retry affordance) ──
-// Payloads for messages the user asked to send while the socket was down. Held
-// here rather than auto-replayed on reconnect so the resend stays a deliberate act.
-
-const _failedSends = new Map(); // Map<retryId, { type, data }>
-let _failedSendSeq = 0;
-
-function _registerFailedSend(type, data) {
-  const retryId = 'r' + (++_failedSendSeq);
-  _failedSends.set(retryId, { type, data });
-  return retryId;
-}
-
-function _retryFailedSend(retryId) {
-  const pending = _failedSends.get(retryId);
-  if (!pending) return;
-  if (!wsSend(pending.type, pending.data)) { _flashSendFailure(); return; }
-  _failedSends.delete(retryId);
-  const session = state.sessions[pending.data.sessionId];
-  const msg = session?.messages.find(m => m.retryId === retryId);
-  if (msg) { msg.failed = false; msg.retryId = null; }
-  renderChatMessages();
-  setInputState('sending');
-}
-
-function _clearMentionsAfterSend() {
-  _pendingMentions = [];
-  _renderMentionChips();
-}
-
-function _clearImageAfterSend() {
-  _pendingImage = null;
-  const bar = $('image-preview-bar');
-  if (bar) bar.classList.add('hidden');
 }
 
 /**
  * Stop a headless cloud turn through the cloud API.
  *
- * Same rule as the relay path: only report the turn as stopped once the server
+ * Only report the turn as stopped once the server
  * confirms it, or the input lies about a turn that is still running.
  */
 async function _interruptHeadlessSession() {
   const base = conn.cloudUrl.replace(/\/$/, '');
   try {
-    const resp = await fetch(`${base}/api/sessions/${encodeURIComponent(state._headlessSessionId)}/interrupt`, {
+    const resp = await fetch(`${base}/api/sessions/${encodeURIComponent(state.activeSessionId)}/interrupt`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
     });
@@ -2846,23 +1706,8 @@ async function _interruptHeadlessSession() {
 
 function interruptSession() {
   if (!state.selectedSessionId) return;
-
-  // A headless cloud session has no desktop behind it, so its interrupt belongs
-  // to the cloud API. Routing it over the relay would send a privileged
-  // `chat:interrupt`, and wsSend answers those without a relay token by
-  // prompting for the desktop PIN — a login screen mid-chat.
-  if (state.cloudSessionMode && state._headlessSessionId && conn.cloudUrl && conn.cloudApiKey) {
-    _interruptHeadlessSession();
-    return;
-  }
-
-  // Only flip back to idle if the interrupt actually reached the desktop —
-  // otherwise the turn is still running and the UI would be lying.
-  if (wsSend('chat:interrupt', { sessionId: state.selectedSessionId })) {
-    setInputState('idle');
-  } else {
-    _flashSendFailure();
-  }
+  if (!state.activeSessionId || !conn.cloudUrl || !conn.cloudApiKey) return;
+  _interruptHeadlessSession();
 }
 
 function setInputState(s) {
@@ -2954,36 +1799,18 @@ function _updatePlusMenuSelection() {
   });
 }
 
+// The cloud API takes model and effort when a session is created and has no way
+// to change them afterwards, so a switch applies to the NEXT session, never the
+// one already running.
 function _selectModel(modelId) {
-  const previous = state.selectedModel;
   state.selectedModel = modelId;
   _updatePlusMenuSelection();
-
-  // If there's an active session, update it mid-session
-  if (state.selectedSessionId &&
-      !wsSend('settings:update', { sessionId: state.selectedSessionId, model: modelId })) {
-    // The running session still uses the old model — don't show it as switched.
-    state.selectedModel = previous;
-    _updatePlusMenuSelection();
-    _flashSendFailure();
-    return; // leave the menu open on the reverted selection
-  }
   _closePlusMenu();
 }
 
 function _selectEffort(effort) {
-  const previous = state.selectedEffort;
   state.selectedEffort = effort;
   _updatePlusMenuSelection();
-
-  // If there's an active session, update it mid-session
-  if (state.selectedSessionId &&
-      !wsSend('settings:update', { sessionId: state.selectedSessionId, effort })) {
-    state.selectedEffort = previous;
-    _updatePlusMenuSelection();
-    _flashSendFailure();
-    return;
-  }
   _closePlusMenu();
 }
 
@@ -3002,183 +1829,6 @@ function _updateScrollFab() {
 function _scrollToBottomSmooth() {
   const container = $('chat-messages');
   if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-}
-
-// ─── Git View ─────────────────────────────────────────────────────────────────
-
-let _gitData = null;
-let _gitBusy = null; // 'pull' | 'push' | null
-
-// _gitBusy is only ever cleared by onGitResult, so a dropped send used to leave
-// both buttons disabled for the rest of the session. Clear it ourselves instead.
-function gitPull() {
-  if (_gitBusy) return;
-  const project = state.projects.find(p => p.id === state.selectedProjectId);
-  if (!project?.path) return;
-  _gitBusy = 'pull';
-  _updateGitBtns();
-  if (!wsSend('git:pull', { cwd: project.path })) {
-    onGitResult('pull', { success: false });
-    _flashSendFailure();
-  }
-}
-
-function gitPush() {
-  if (_gitBusy) return;
-  const project = state.projects.find(p => p.id === state.selectedProjectId);
-  if (!project?.path) return;
-  _gitBusy = 'push';
-  _updateGitBtns();
-  if (!wsSend('git:push', { cwd: project.path })) {
-    onGitResult('push', { success: false });
-    _flashSendFailure();
-  }
-}
-
-function onGitResult(action, data) {
-  _gitBusy = null;
-  _updateGitBtns();
-  const btn = $(action === 'pull' ? 'btn-git-pull' : 'btn-git-push');
-  if (btn) {
-    btn.classList.add(data.success ? 'flash-ok' : 'flash-err');
-    setTimeout(() => btn.classList.remove('flash-ok', 'flash-err'), 800);
-  }
-}
-
-function _updateGitBtns() {
-  const pullBtn = $('btn-git-pull');
-  const pushBtn = $('btn-git-push');
-  if (pullBtn) pullBtn.classList.toggle('busy', _gitBusy === 'pull');
-  if (pushBtn) pushBtn.classList.toggle('busy', _gitBusy === 'push');
-}
-
-function renderGitView() {
-  const container = $('git-content');
-  if (!container) return;
-
-  // Request fresh git status
-  const project = state.projects.find(p => p.id === state.selectedProjectId);
-  if (project?.path) {
-    wsSend('git:status', { cwd: project.path });
-  }
-
-  if (!_gitData || !_gitData.isGitRepo) {
-    container.innerHTML = `
-      <div class="git-loading">
-        <div class="tool-spinner"></div>
-        <span style="margin-left:10px;color:var(--text-muted)">${t('git.loading')}</span>
-      </div>`;
-    return;
-  }
-
-  _renderGitData(container, _gitData);
-}
-
-function onGitStatus(data) {
-  _gitData = data;
-  _updateGitBadges(data);
-  if (state.currentView === 'git') {
-    const container = $('git-content');
-    if (container) _renderGitData(container, data);
-  }
-}
-
-function _updateGitBadges(git) {
-  const ahead = git?.aheadBehind?.ahead || 0;
-  const behind = git?.aheadBehind?.behind || 0;
-  const badgeAhead = $('badge-ahead');
-  const badgeBehind = $('badge-behind');
-  if (badgeAhead) {
-    badgeAhead.textContent = `↑${ahead}`;
-    badgeAhead.classList.toggle('hidden', ahead === 0);
-  }
-  if (badgeBehind) {
-    badgeBehind.textContent = `↓${behind}`;
-    badgeBehind.classList.toggle('hidden', behind === 0);
-  }
-}
-
-function _renderGitData(container, git) {
-  if (!git.isGitRepo) {
-    container.innerHTML = `<div class="git-empty">${t('git.notRepo')}</div>`;
-    return;
-  }
-
-  const branch = escHtml(git.branch || 'unknown');
-  const ahead = git.aheadBehind?.ahead || 0;
-  const behind = git.aheadBehind?.behind || 0;
-  const files = git.files || { staged: [], unstaged: [], untracked: [] };
-  const totalChanges = files.staged.length + files.unstaged.length + files.untracked.length;
-  const lastCommit = git.commit;
-
-  let html = '';
-
-  // Branch card
-  html += `
-    <div class="git-card git-branch-card">
-      <div class="git-card-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
-      </div>
-      <div class="git-card-body">
-        <div class="git-branch-name">${branch}</div>
-        <div class="git-branch-meta">
-          ${ahead > 0 ? `<span class="git-ahead">↑${ahead}</span>` : ''}
-          ${behind > 0 ? `<span class="git-behind">↓${behind}</span>` : ''}
-          ${ahead === 0 && behind === 0 ? `<span class="git-synced">${t('git.upToDate')}</span>` : ''}
-        </div>
-      </div>
-    </div>`;
-
-  // Last commit
-  if (lastCommit) {
-    html += `
-      <div class="git-card">
-        <div class="git-card-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="1.05" y1="12" x2="7" y2="12"/><line x1="17.01" y1="12" x2="22.96" y2="12"/></svg>
-        </div>
-        <div class="git-card-body">
-          <div class="git-commit-msg">${escHtml(lastCommit.message || '')}</div>
-          <div class="git-commit-meta"><span class="git-commit-hash">${escHtml(lastCommit.hash || '')}</span> · ${escHtml(lastCommit.date || '')}</div>
-        </div>
-      </div>`;
-  }
-
-  // Changes section
-  if (totalChanges > 0) {
-    html += `<div class="git-section-title">${t('git.changes')} <span class="git-changes-count">${totalChanges}</span></div>`;
-
-    const renderFile = (f, type) => {
-      const statusClass = type === 'staged' ? 'staged' : type === 'untracked' ? 'untracked' : 'modified';
-      const statusLabel = type === 'staged' ? 'S' : type === 'untracked' ? '?' : 'M';
-      return `<div class="git-file ${statusClass}"><span class="git-file-status">${statusLabel}</span><span class="git-file-name">${escHtml(f.file || f)}</span></div>`;
-    };
-
-    if (files.staged.length) {
-      files.staged.forEach(f => { html += renderFile(f, 'staged'); });
-    }
-    if (files.unstaged.length) {
-      files.unstaged.forEach(f => { html += renderFile(f, 'modified'); });
-    }
-    if (files.untracked.length) {
-      files.untracked.forEach(f => { html += renderFile(f, 'untracked'); });
-    }
-  } else {
-    html += `<div class="git-clean">${t('git.clean')} ✓</div>`;
-  }
-
-  // Recent commits
-  if (git.recentCommits?.length) {
-    html += `<div class="git-section-title">${t('git.recentCommits')}</div>`;
-    for (const c of git.recentCommits.slice(0, 5)) {
-      html += `
-        <div class="git-commit-row">
-          <span class="git-commit-hash">${escHtml((c.hash || '').slice(0, 7))}</span>
-          <span class="git-commit-text">${escHtml(c.message || '')}</span>
-        </div>`;
-    }
-  }
-
-  container.innerHTML = html;
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -3444,71 +2094,23 @@ function _dismissInstallBanner() {
   localStorage.setItem('pwa_install_dismissed', '1');
 }
 
-// ─── Cloud Popup ─────────────────────────────────────────────────────────────
-
-function _showCloudPopup(show) {
-  const overlay = $('cloud-popup-overlay');
-  if (!overlay) return;
-  if (show) {
-    // Apply i18n
-    const title = $('cloud-popup-title');
-    const desc = $('cloud-popup-desc');
-    const ctaLabel = $('cloud-popup-cta-label');
-    if (title) title.textContent = t('cloud.popupTitle');
-    if (desc) desc.textContent = t('cloud.popupDesc');
-    if (ctaLabel) ctaLabel.textContent = t('cloud.popupCta');
-    overlay.classList.remove('hidden');
-  } else {
-    overlay.classList.add('hidden');
-  }
-}
-
-function _onCloudPopupCta() {
-  _debugLog('[Cloud] CTA clicked, fetching projects...');
-  _showCloudPopup(false);
-  _showHeadlessBanner(true);
-  _fetchCloudProjects();
-  switchView('projects');
-}
-
-function _setupCloudPopup() {
-  const cta = $('cloud-popup-cta');
-  const dismiss = $('cloud-popup-dismiss');
-  if (cta) cta.addEventListener('click', _onCloudPopupCta);
-  if (dismiss) dismiss.addEventListener('click', () => _showCloudPopup(false));
-}
-
 // ─── Headless Cloud Sessions ──────────────────────────────────────────────────
 
-function _showHeadlessBanner(show) {
-  const banner = $('headless-banner');
-  const text = $('headless-banner-text');
-  const badge = $('headless-badge');
-  if (!banner) return;
-  if (show) {
-    banner.classList.remove('hidden');
-    if (text) text.textContent = t('headless.banner');
-    if (badge) badge.style.display = state.cloudSessionMode ? '' : 'none';
-  } else {
-    banner.classList.add('hidden');
-    if (badge) badge.style.display = 'none';
-  }
-}
-
+/**
+ * Start a cloud session and show it. Errors are reported to the caller as well
+ * as on screen: resumePastSession restores its card from the rejection, so
+ * swallowing it would leave that card dimmed and inert forever.
+ */
 async function _startHeadlessSession(projectName, prompt, resumeSessionId) {
-  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  if (!conn.cloudUrl || !conn.cloudApiKey) throw new Error('not authenticated');
   const base = conn.cloudUrl.replace(/\/$/, '');
   const headers = {
     'Authorization': `Bearer ${conn.cloudApiKey}`,
     'Content-Type': 'application/json',
   };
 
-  // Update banner
-  const text = $('headless-banner-text');
-  if (text) text.textContent = t('headless.creating');
-
+  let sessionId;
   try {
-    // Create session via cloud API
     const body = {
       projectName,
       prompt,
@@ -3521,64 +2123,51 @@ async function _startHeadlessSession(projectName, prompt, resumeSessionId) {
       headers,
       body: JSON.stringify(body),
     });
-
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(err);
-    }
-
-    const { sessionId } = await resp.json();
-    _debugLog('[Headless] Session created:', sessionId);
-    state._headlessSessionId = sessionId;
-    state.cloudSessionMode = true;
-
-    // Update banner
-    if (text) text.textContent = t('headless.bannerActive');
-    const badge = $('headless-badge');
-    if (badge) badge.style.display = '';
-
-    // Create a local session to render messages
-    const project = state.projects.find(p => p.name === projectName || p.path?.endsWith(projectName));
-    const localSession = _makeSession(`headless-${sessionId}`, project?.id || '', projectName);
-    // Resuming starts a NEW session pointed at an old transcript: the agent
-    // keeps the context, the phone does not. Show what is being continued
-    // instead of a lone "continue" line with nothing above it.
-    if (resumeSessionId) {
-      localSession.messages.push(...await _fetchCloudTranscript(resumeSessionId));
-    }
-    localSession.messages.push({ role: 'user', content: prompt });
-    state.sessions[localSession.sessionId] = localSession;
-    state.selectedSessionId = localSession.sessionId;
-    renderSessionBar();
-    renderChatMessages();
-    _saveSessions();
-
-    // Open WS stream to receive SDK events
-    _openHeadlessStream(sessionId);
-
-    // Switch to chat view
-    switchView('chat');
-    setInputState('sending');
-
+    if (!resp.ok) throw new Error(await resp.text());
+    ({ sessionId } = await resp.json());
   } catch (err) {
-    _debugLog('[Headless] Failed to create session:', err?.message || err);
-    if (text) text.textContent = t('headless.error');
-    setTimeout(() => {
-      if (state.desktopOffline) {
-        if (text) text.textContent = t('headless.banner');
-      }
-    }, 3000);
+    _debugLog('[Cloud] Failed to create session:', err?.message || err);
+    _showSessionError(t('headless.error'));
+    throw err;
   }
+
+  _debugLog('[Cloud] Session created:', sessionId);
+  state.activeSessionId = sessionId;
+
+  // Create a local session to render messages
+  const project = state.projects.find(p => p.name === projectName || p.path?.endsWith(projectName));
+  const localSession = _makeSession(`headless-${sessionId}`, project?.id || '', projectName);
+  // Resuming starts a NEW session pointed at an old transcript: the agent
+  // keeps the context, the phone does not. Show what is being continued
+  // instead of a lone "continue" line with nothing above it.
+  if (resumeSessionId) {
+    localSession.messages.push(...await _fetchCloudTranscript(resumeSessionId));
+  }
+  localSession.messages.push({ role: 'user', content: prompt });
+  state.sessions[localSession.sessionId] = localSession;
+  state.selectedSessionId = localSession.sessionId;
+  renderSessionBar();
+  renderChatMessages();
+  _saveSessions();
+
+  _openSessionStream(sessionId);
+
+  switchView('chat');
+  setInputState('sending');
 }
 
-function _openHeadlessStream(sessionId) {
-  // Stream events are now received via the relay WS (type: 'stream')
-  // No need to open a separate WS connection (which fails on iOS Safari)
-  _debugLog('[Headless] Listening for stream events via relay WS for session:', sessionId);
+/** Surface a cloud failure in the transcript rather than in a banner. */
+function _showSessionError(message) {
+  const session = state.sessions[state.selectedSessionId];
+  if (session) {
+    session.messages.push({ role: 'error', content: message });
+    renderChatMessages();
+  }
+  _flashSendFailure();
 }
 
 function _handleHeadlessEvent(msg) {
-  const localSessionId = `headless-${state._headlessSessionId}`;
+  const localSessionId = `headless-${state.activeSessionId}`;
   const session = state.sessions[localSessionId];
   if (!session) return;
 
@@ -3630,12 +2219,19 @@ function _handleHeadlessEvent(msg) {
     }
   }
 
-  if (msg.type === 'idle') {
+  if (msg.type === 'idle' || msg.type === 'done') {
+    session.status = 'idle';
+    session.lastActivity = t('status.done');
+    _refreshControlIfActive();
     setInputState('idle');
-  }
-
-  if (msg.type === 'done') {
-    setInputState('idle');
+    if (state.currentView !== 'chat') $('chat-badge')?.classList.remove('hidden');
+    // The phone is usually in a pocket while a turn runs; the notification is
+    // the only thing that tells the user it finished.
+    _showNotification(
+      t('status.claudeFinished'),
+      session.tabName || 'Chat',
+      `done-${localSessionId}`
+    );
   }
 
   if (msg.type === 'error') {
@@ -3709,8 +2305,7 @@ async function _syncCloudSessions() {
 
   const newest = _pickResumableSession(sessions);
   if (newest) {
-    state.cloudSessionMode = true;
-    state._headlessSessionId = newest.id;
+    state.activeSessionId = newest.id;
     if (!state.selectedSessionId || !state.sessions[state.selectedSessionId]) {
       state.selectedSessionId = `headless-${newest.id}`;
     }
@@ -3775,14 +2370,14 @@ async function _hydrateSelectedSession() {
 }
 
 async function _sendHeadlessMessage(text) {
-  if (!state._headlessSessionId || !conn.cloudUrl || !conn.cloudApiKey) return;
+  if (!state.activeSessionId || !conn.cloudUrl || !conn.cloudApiKey) return;
   const base = conn.cloudUrl.replace(/\/$/, '');
   const headers = {
     'Authorization': `Bearer ${conn.cloudApiKey}`,
     'Content-Type': 'application/json',
   };
 
-  const localSessionId = `headless-${state._headlessSessionId}`;
+  const localSessionId = `headless-${state.activeSessionId}`;
   const session = state.sessions[localSessionId];
   if (session) {
     session.messages.push({ role: 'user', content: text });
@@ -3793,7 +2388,7 @@ async function _sendHeadlessMessage(text) {
   setInputState('sending');
 
   try {
-    await fetch(`${base}/api/sessions/${encodeURIComponent(state._headlessSessionId)}/send`, {
+    await fetch(`${base}/api/sessions/${encodeURIComponent(state.activeSessionId)}/send`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ message: text }),
@@ -3805,8 +2400,8 @@ async function _sendHeadlessMessage(text) {
 }
 
 function _cleanupHeadlessSession() {
-  state.cloudSessionMode = false;
-  state._headlessSessionId = null;
+  state.activeSessionId = null;
+  _closeSessionStream();
 }
 
 // ─── Start ────────────────────────────────────────────────────────────────────
@@ -3814,7 +2409,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _onDesktopOffline, _unlistedPastSessions, _startHeadlessSession, _filterProjects, state, conn };
+  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _filterProjects, state, conn };
 } else {
   init();
 }

@@ -3,7 +3,7 @@
  * PWA with network-first strategy for automatic cache-busting on deploy.
  */
 
-const CACHE_NAME = 'ct-remote-v11';
+const CACHE_NAME = 'ct-remote-v12';
 const STATIC_ASSETS = ['/', '/app.js', '/i18n.js', '/style.css', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
@@ -65,7 +65,7 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Future: handle push events from cloud relay
+// Future: handle push events from the cloud server
 self.addEventListener('push', (event) => {
   if (!event.data) return;
   try {

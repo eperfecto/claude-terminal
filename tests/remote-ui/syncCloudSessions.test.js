@@ -26,8 +26,7 @@ beforeEach(() => {
   conn.cloudApiKey = 'ctc_k';
   state.sessions = {};
   state.selectedSessionId = null;
-  state.cloudSessionMode = false;
-  state._headlessSessionId = null;
+  state.activeSessionId = null;
   state.projects = [];
 });
 
@@ -46,8 +45,7 @@ test('selects the most recently active one', async () => {
   await _syncCloudSessions();
 
   expect(state.selectedSessionId).toBe('headless-b');
-  expect(state._headlessSessionId).toBe('b');
-  expect(state.cloudSessionMode).toBe(true);
+  expect(state.activeSessionId).toBe('b');
 });
 
 test('drops sessions the server no longer reports', async () => {
@@ -85,12 +83,12 @@ test('binds the project once the project list has loaded', async () => {
   expect(state.sessions['headless-a'].projectId).toBe('cloud-agrak-http');
 });
 
-test('leaves cloud mode off when the server reports nothing', async () => {
+test('adopts nothing when the server reports no sessions', async () => {
   mockSessions([]);
 
   await _syncCloudSessions();
 
-  expect(state.cloudSessionMode).toBe(false);
+  expect(state.activeSessionId).toBeNull();
   expect(state.selectedSessionId).toBeNull();
 });
 

@@ -19,7 +19,6 @@ beforeEach(() => {
     <button id="send-btn"></button>
     <button id="interrupt-btn"></button>`;
   global.WebSocket = class { constructor() { this.readyState = 0; } close() {} addEventListener() {} };
-  conn.mode = 'relay';
   conn.cloudUrl = 'https://cloud.example.com';
   conn.cloudApiKey = 'ctc_k';
   state.projects = [{ id: 'cloud-agrak-http', name: 'Agrak HTTP', path: 'agrak-http', _cloud: true }];

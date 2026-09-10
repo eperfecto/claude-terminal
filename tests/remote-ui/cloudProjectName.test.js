@@ -21,10 +21,6 @@ test('addresses a cloud project by its server key, not its display name', () => 
   expect(_cloudProjectName(cloudProject)).toBe('project-1786576204080-ptd1hdefz');
 });
 
-test('keeps using the plain name for a desktop project', () => {
-  expect(_cloudProjectName({ id: 'p1', name: 'alpha', path: '/w/alpha' })).toBe('alpha');
-});
-
-test('falls back to the folder name when a desktop project has none', () => {
-  expect(_cloudProjectName({ id: 'p2', path: '/w/beta' })).toBe('beta');
+test('returns an empty string when there is no project', () => {
+  expect(_cloudProjectName(null)).toBe('');
 });
