@@ -2,7 +2,7 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.2.0] - 2026-09-10
 
 ### Fixed
 - Restarting the cloud server no longer looks like it deleted your sessions. The
