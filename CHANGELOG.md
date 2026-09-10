@@ -2,7 +2,11 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.0.0] - 2026-09-10
+
+**Breaking:** the mobile remote no longer connects to your desktop. If you used it
+over local Wi-Fi with a PIN, that path is gone — the PWA is now served by, and
+talks only to, your self-hosted cloud server.
 
 ### Removed
 - **Remote UI is cloud-only.** The PWA no longer bridges to the desktop: the relay
