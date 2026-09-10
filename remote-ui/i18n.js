@@ -25,6 +25,7 @@ const TRANSLATIONS = {
     'session.noChats': 'Aucun chat',
     'session.noChatsHint': 'Cliquez le bouton ci-dessous pour commencer',
     'session.pastDivider': 'Sessions précédentes',
+    'session.resumable': 'à reprendre',
     'session.showMore': 'Voir {count} de plus\u2026',
 
     // Status
@@ -96,6 +97,7 @@ const TRANSLATIONS = {
     'session.noChats': 'No chats yet',
     'session.noChatsHint': 'Tap the button below to get started',
     'session.pastDivider': 'Past sessions',
+    'session.resumable': 'to resume',
     'session.showMore': 'Show {count} more\u2026',
 
     'status.reconnecting': 'Reconnecting\u2026',
@@ -158,6 +160,7 @@ const TRANSLATIONS = {
     'session.noChats': 'Sin chats a\u00fan',
     'session.noChatsHint': 'Toca el bot\u00f3n de abajo para comenzar',
     'session.pastDivider': 'Sesiones anteriores',
+    'session.resumable': 'para retomar',
     'session.showMore': 'Ver {count} m\u00e1s\u2026',
 
     'status.reconnecting': 'Reconectando\u2026',

@@ -6,7 +6,7 @@
  * the most recently active one is the one the user was last looking at.
  */
 
-const { _pickResumableSession } = require('../../remote-ui/app.js');
+const { _pickSessionToRejoin } = require('../../remote-ui/app.js');
 
 const session = (id, over = {}) => ({
   id, projectName: 'agrak-http', status: 'running',
@@ -14,16 +14,16 @@ const session = (id, over = {}) => ({
 });
 
 test('returns nothing when the server lists none', () => {
-  expect(_pickResumableSession([])).toBeNull();
-  expect(_pickResumableSession(undefined)).toBeNull();
+  expect(_pickSessionToRejoin([])).toBeNull();
+  expect(_pickSessionToRejoin(undefined)).toBeNull();
 });
 
 test('returns the only live session', () => {
-  expect(_pickResumableSession([session('a')]).id).toBe('a');
+  expect(_pickSessionToRejoin([session('a')]).id).toBe('a');
 });
 
 test('prefers the most recently active when several are live', () => {
-  const picked = _pickResumableSession([
+  const picked = _pickSessionToRejoin([
     session('old', { lastActivity: 500 }),
     session('newest', { lastActivity: 9000 }),
     session('mid', { lastActivity: 3000 }),
@@ -32,7 +32,7 @@ test('prefers the most recently active when several are live', () => {
 });
 
 test('falls back to createdAt when a session never reported activity', () => {
-  const picked = _pickResumableSession([
+  const picked = _pickSessionToRejoin([
     session('a', { lastActivity: null, createdAt: 100 }),
     session('b', { lastActivity: null, createdAt: 700 }),
   ]);

@@ -1357,7 +1357,7 @@ function renderSessionBar() {
   bar.classList.remove('hidden');
   select.innerHTML = sessions.map(s =>
     `<option value="${escHtml(s.sessionId)}" ${s.sessionId === state.selectedSessionId ? 'selected' : ''}>
-      ${escHtml(s.tabName || 'Chat')}
+      ${escHtml(s.tabName || 'Chat')}${s.resumable ? ` — ${escHtml(t('session.resumable'))}` : ''}
     </option>`
   ).join('');
   select.onchange = () => { state.selectedSessionId = select.value; renderChatMessages(); };
@@ -1710,7 +1710,13 @@ function sendMessage() {
   if (!project) return;
   input.value = '';
   input.style.height = 'auto';
-  _startHeadlessSession(_cloudProjectName(project), text).catch(() => {});
+
+  // Writing into a session the server restarted continues it: resume from its
+  // transcript rather than opening a blank one, which would discard the very
+  // conversation that made it worth keeping on screen.
+  const selected = state.sessions[state.selectedSessionId];
+  const resumeId = selected?.resumable ? selected.sdkSessionId : undefined;
+  _startHeadlessSession(_cloudProjectName(project), text, resumeId || undefined).catch(() => {});
   updateSendBtn();
 }
 
@@ -2273,12 +2279,14 @@ function _handleHeadlessEvent(msg) {
 }
 
 /**
- * Which live cloud session to rejoin after a reload.
+ * Which live cloud session to rejoin after a reload: the most recently active
+ * one is the one the user was looking at.
  *
- * The server only lists sessions it still holds, so every entry is resumable;
- * the most recently active one is the one the user was looking at.
+ * Takes only live sessions — `status: 'resumable'` means the opposite of what
+ * this function is for, a session whose process is gone and which has to be
+ * restarted before it can receive anything.
  */
-function _pickResumableSession(sessions) {
+function _pickSessionToRejoin(sessions) {
   if (!Array.isArray(sessions) || !sessions.length) return null;
   const when = s => s.lastActivity || s.createdAt || 0;
   return sessions.reduce((best, s) => (when(s) > when(best) ? s : best));
@@ -2322,10 +2330,16 @@ async function _syncCloudSessions() {
     } else {
       state.sessions[localId] = _makeSession(localId, project ? project.id : '', s.projectName);
     }
+    // A resumable session outlived the process that ran it: the conversation is
+    // on disk but nothing is listening, so it must not be offered a chat box.
+    // Re-read on every sync — a session can come back to life.
+    const local = state.sessions[localId];
+    local.resumable = s.status === 'resumable';
+    local.sdkSessionId = s.sdkSessionId || null;
   }
 
-  // A session the server stopped reporting is over. Leaving it on screen offers
-  // a chat box that can never receive another event.
+  // A session the server does not report at all is gone for good — not even its
+  // transcript is left. Leaving it on screen offers a chat that answers nothing.
   for (const id of Object.keys(state.sessions)) {
     if (id.indexOf('headless-') === 0 && !liveIds.has(id)) {
       delete state.sessions[id];
@@ -2333,7 +2347,9 @@ async function _syncCloudSessions() {
     }
   }
 
-  const newest = _pickResumableSession(sessions);
+  // Only a live session can be rejoined. Adopting a resumable one would point
+  // the composer at a session that cannot receive a message.
+  const newest = _pickSessionToRejoin(sessions.filter(s => s.status !== 'resumable'));
   if (newest) {
     state.activeSessionId = newest.id;
     if (!state.selectedSessionId || !state.sessions[state.selectedSessionId]) {
@@ -2439,7 +2455,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, interruptSession, _pickResumableSession, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _applyServerVersion, _fetchServerVersion, _filterProjects, state, conn };
+  module.exports = { _cloudProjectName, sendMessage, interruptSession, _pickSessionToRejoin, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _applyServerVersion, _fetchServerVersion, _filterProjects, state, conn };
 } else {
   init();
 }

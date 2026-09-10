@@ -2,6 +2,17 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Restarting the cloud server no longer looks like it deleted your sessions. The
+  server kept the metadata and the transcript on disk all along but reported only
+  the sessions still running in memory, so the phone pruned the rest from view.
+  They now come back marked as resumable, and writing into one continues the
+  conversation from its transcript instead of opening a blank session.
+- The admin Overview and Users tabs counted sessions left marked `running` by a
+  previous process as active. They are reconciled at startup.
+
 ## [2.1.1] - 2026-09-10
 
 ### Fixed
