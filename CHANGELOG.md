@@ -2,7 +2,7 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.1.0] - 2026-09-10
 
 ### Added
 - The mobile remote shows which build the cloud server is running, beside the
