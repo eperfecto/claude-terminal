@@ -34,6 +34,10 @@ RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 COPY --from=build /app/dist ./dist/
 COPY remote-ui/ ./remote-ui/
 
+# The release version, for /health. cloud/package.json is not it: nothing bumps
+# that one, so it has reported 0.2.0 across every release.
+COPY package.json ./app-version.json
+
 RUN mkdir -p /app/data && chown -R claude:claude /app
 
 # Entrypoint fixes data dir ownership then drops to user claude

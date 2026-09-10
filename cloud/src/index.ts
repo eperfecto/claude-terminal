@@ -6,6 +6,7 @@ import { store } from './store/store';
 import { createCloudRouter } from './cloud/CloudAPI';
 import { sessionManager } from './cloud/SessionManager';
 import { authenticateApiKey, buildKeyIndex } from './auth/auth';
+import { appVersion } from './version';
 import { WebSocket, WebSocketServer } from 'ws';
 
 // ── In-memory circular log buffer for admin TUI ──
@@ -68,7 +69,7 @@ export async function startServer(): Promise<void> {
   app.get('/health', (_req, res) => {
     res.json({
       status: 'ok',
-      version: require('../package.json').version,
+      version: appVersion,
       cloud: config.cloudEnabled,
     });
   });
@@ -157,7 +158,7 @@ export async function startServer(): Promise<void> {
 
   server.listen(config.port, config.host, () => {
     console.log('');
-    console.log(`  Claude Terminal Cloud v${require('../package.json').version}`);
+    console.log(`  Claude Terminal Cloud v${appVersion}`);
     if (config.cloudEnabled) {
       console.log(`  API:    http://${config.host}:${config.port}/api`);
     }
