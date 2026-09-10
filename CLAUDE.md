@@ -35,8 +35,8 @@ Electron Main Process (Node.js)
 ├── main.js                          # Bootstrap, lifecycle, single-instance lock, global shortcuts
 ├── src/main/preload.js              # IPC bridge (window.electron_api)
 ├── src/main/preload-quickpicker.js  # Preload for Quick Picker window
-├── src/main/ipc/                    # 26 IPC files, 256 handlers total
-├── src/main/services/               # 24 services
+├── src/main/ipc/                    # 29 IPC files, 269 handlers total
+├── src/main/services/               # 28 services
 ├── src/main/windows/                # 5 window managers
 ├── src/main/utils/                  # 9 utilities
 ├── src/main/workflow-nodes/         # 21 workflow node types
@@ -97,12 +97,10 @@ Remote UI (PWA for mobile)
 | `claude.ipc.js` | 5 | Session listing, conversation history, Control Tower agent supervision |
 | `project.ipc.js` | 1 | TODO/FIXME/HACK/XXX scanning, project stats |
 | `hooks.ipc.js` | 5 | Install/remove/status/verify hooks in `~/.claude/settings.json` |
-| `remote.ipc.js` | 11 | PIN auth, WS server info/start/stop, notify projects/session/tab/time |
 | `workflow.ipc.js` | 18 | Create/list/run/cancel workflows, run logs, diagnose, variables, test node |
 | `workspace.ipc.js` | 7 | Workspace list/overview/search/read/write docs/concept links |
 | `parallel.ipc.js` | 9 | Parallel task orchestration across git worktrees |
 | `database.ipc.js` | 11 | Multi-driver queries (SQLite/MySQL/PostgreSQL/MongoDB/Redis), schema, export |
-| `cloud-relay.ipc.js` | 5 | Cloud relay WSS connection |
 | `cloud-sync.ipc.js` | 8 | Bidirectional desktop <-> cloud sync with per-entity toggles |
 | `cloud-projects.ipc.js` | 11 | Cloud project upload / download / listing |
 | `time.ipc.js` | 1 | Time tracking snapshot |
@@ -110,7 +108,7 @@ Remote UI (PWA for mobile)
 | `fivem.ipc.js` | - | Delegated to `src/project-types/fivem/` |
 | `index.js` | - | Orchestrator - registers all handlers |
 
-**Total: 256 IPC handlers across 26 files.**
+**Total: 269 `ipcMain` handlers across 29 files.**
 
 ### Services (`src/main/services/`)
 
@@ -127,7 +125,6 @@ Remote UI (PWA for mobile)
 | `UpdaterService.js` | electron-updater, 30 min periodic checks, stale cache cleanup |
 | `HooksService.js` | 15 Claude hook types, non-destructive install, auto-backup/repair |
 | `HookEventServer.js` | HTTP server on `127.0.0.1:0`, receives POST from hook handler |
-| `RemoteServer.js` | WebSocket + HTTP for PWA, dynamic port, 6-digit PIN auth, broadcast updates |
 | `DatabaseService.js` | Multi-driver pooling (SQLite/MySQL/PostgreSQL/MongoDB/Redis), schema, idle eviction |
 | `WorkflowService.js` | Workflow automation orchestrator (central) |
 | `WorkflowRunner.js` | Execute a single workflow run (variables, conditions, data flow) |
@@ -135,7 +132,7 @@ Remote UI (PWA for mobile)
 | `WorkflowStorage.js` | Persist workflow definitions + run history |
 | `ParallelTaskService.js` | Decompose a feature into independent sub-tasks, one git worktree + branch each, AI merge agent |
 | `WorkspaceService.js` | Workspace knowledge base: docs, concept links, full-text search |
-| `CloudRelayClient.js` | WSS client to self-hosted cloud relay |
+| `CloudStatusMonitor.js` | Periodic REST probe of the cloud server; emits `cloud:status-changed` only on transitions |
 | `SyncEngine.js` | Bidirectional desktop <-> cloud sync, conflict resolution, file watcher, per-entity toggles |
 | `TelemetryService.js` | Opt-in anonymous telemetry |
 | `FivemService.js` | Re-export (delegated to `src/project-types/fivem`) |
@@ -160,7 +157,7 @@ Remote UI (PWA for mobile)
 | `prDescriptionGenerator.js` | AI-generated PR descriptions |
 | `shell.js` | Shell utilities, PATH resolution (macOS/Linux) |
 | `httpCache.js` | Disk HTTP response cache |
-| `machineId.js` | Stable machine identifier (telemetry + relay) |
+| `machineId.js` | Stable machine identifier (telemetry) |
 | `zipProject.js` | Zip project for cloud upload (`archiver`) |
 | `formatDuration.js` | Duration formatting helper |
 
@@ -251,7 +248,6 @@ Base class `State.js`: observable, `subscribe()`, batched notifications via `req
 | `MarketplacePanel` | Skill marketplace search + install |
 | `MemoryEditor` | Edit global / settings / project `CLAUDE.md` |
 | `ShortcutsManager` | Customizable keyboard shortcuts |
-| `RemotePanel` | Remote control (PIN, QR code, server status) |
 | `ControlTowerPanel` | Real-time overview of all active Claude agents, remote interrupt, reply to AskUserQuestion |
 | `ParallelTaskPanel` | Parallel run orchestration (start/cancel/merge/cleanup), per-task diff, terminal |
 | `SessionReplayPanel` | Timeline replay of past sessions, video-scrubber, Q&A cards |
@@ -312,9 +308,9 @@ Each type typically provides `main/[Type]Service.js`, `main/[type].ipc.js`, `ren
 
 ## Remote Control & Cloud
 
-- **`remote-ui/`** - PWA (`app.js`, `index.html`, `style.css`, `sw.js`, `manifest.json`, `i18n.js`, icons). Bundled as `extraResources`.
-- **`RemoteServer.js`** - Dynamic-port WebSocket server, 6-digit PIN auth, QR code via `qrcode` package.
-- **`CloudRelayClient.js`** - Self-hosted Docker relay (WSS), allows remote-ui access outside local Wi-Fi.
+- **`remote-ui/`** - PWA (`app.js`, `index.html`, `style.css`, `sw.js`, `manifest.json`, `i18n.js`, icons). Served by the cloud server, not by the desktop app.
+- **Cloud-only transport** - The PWA talks to the cloud server and nothing else: API-key auth, REST `/api/*` for projects and sessions, and one WebSocket per session at `/api/sessions/:id/stream`. It never connects to a desktop machine, so it lists only the projects and sessions that live on the server.
+- **`CloudStatusMonitor.js`** - The desktop's cloud reachability signal: a REST probe of `/api/me` every 60 s that emits `cloud:status-changed` on transitions.
 - **`SyncEngine.js`** - Bidirectional desktop <-> cloud sync. Per-entity toggles: projects, settings, skills, agents, MCP configs, keybindings, memory, hooks, archives. File watcher with conflict diff modal.
 - **Cross-machine notifications** - Desktop notifications when a cloud session finishes.
 - **Session resume from cloud** - Pick up any session from another machine.
@@ -449,8 +445,7 @@ OS credential store (via keytar)       # GitHub token (Windows Credential Manage
 | `chokidar` | ^5.0.0 | File watcher |
 | `archiver` + `extract-zip` | - | Cloud project zip |
 | `electron-updater` | ^6.1.7 | Auto-update |
-| `ws` | ^8.19.0 | WebSocket (remote + cloud relay) |
-| `qrcode` | ^1.5.4 | QR code for remote |
+| `ws` | ^8.19.0 | WebSocket (cloud session streams) |
 | `esbuild` | ^0.27.2 | Renderer bundling (IIFE, Chrome 120, sourcemaps) |
 | `jest` + jsdom | ^29.7.0 | Tests |
 | `playwright` | ^1.58.2 | Browser automation (screenshots, axe-core a11y) |
@@ -471,8 +466,8 @@ OS credential store (via keytar)       # GitHub token (Windows Credential Manage
 - **Renderer bundling:** esbuild IIFE -> `dist/renderer.bundle.js` with sourcemaps, target `chrome120`
 - **Persistence:** atomic writes (temp + rename), `.bak` backup files, corruption recovery
 - **Updates:** generic provider, 30 min periodic checks, differential packages
-- **Remote control:** WS server with PIN auth, QR code, PWA in `remote-ui/`
-- **Cloud sync:** self-hosted Docker relay, per-entity toggles, file watcher, conflict diff modal
+- **Remote control:** the `remote-ui/` PWA is a pure cloud client — API-key auth, REST + per-session WebSocket, no desktop bridge
+- **Cloud sync:** self-hosted cloud server, per-entity toggles, file watcher, conflict diff modal
 - **Parallel tasks:** git worktrees per sub-task, AI merge agent, persisted run state
 - **Workflows:** LiteGraph editor, 21 nodes / 6 trigger types, AI assistant for graph editing, webhook/cron/hook triggers
 - **Workspace:** cross-project KB with advisor chat, concept links, `@workspace` mention
@@ -496,7 +491,7 @@ npm run test:watch          # Watch mode
   - `ipc/` - hooks, project, usage
   - `remote-ui/` - hierarchy
   - `security/` - security tests
-  - `services/` - ChatService, DatabaseService, DashboardService, HooksService, MarkdownRenderer, RemoteServer, WorkflowRunner
+  - `services/` - ChatService, CloudStatusMonitor, DatabaseService, DashboardService, HooksService, MarkdownRenderer, WorkflowRunner
   - `state/` - State, database, git, mcp, projects, settings, terminals, timeTracking, workflows
   - `utils/` - color, commitMessageGenerator, dropPaths, fileIcons, format, formatDuration, frontmatter, git, httpCache, shell, syntaxHighlight
 

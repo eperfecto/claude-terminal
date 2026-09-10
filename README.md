@@ -323,9 +323,9 @@ npm install
 - Cron, hook, webhook, and event-based triggers
 - MCP tools for full workflow control from Claude Code
 
-### Connectivity (Remote & Cloud)
-- Unified **Connectivity tab** combining local remote access and cloud sync in one place
-- Self-hosted Docker relay server for remote project access
+### Connectivity (Cloud)
+- **Connectivity tab** for the cloud server connection and sync
+- Self-hosted Docker cloud server for remote project access
 - Project upload and auto-sync with file watcher and conflict resolution
 - **Per-entity sync toggles**: choose exactly which data syncs (projects, settings, skills, agents, MCP configs, keybindings, memory, hooks, archives)
 - **Session resume from cloud**: pick up any session from another machine
@@ -368,10 +368,10 @@ npm install
 - Accessibility audit panel with axe-core
 
 ### Remote Control
-- Mobile PWA for remote control from phone or browser
-- Cloud relay for access anywhere (via self-hosted server)
-- Real-time session monitoring, chat interaction, and project switching
-- 6-digit PIN authentication with QR code
+- Mobile PWA served by your self-hosted cloud server, reachable from anywhere
+- Works entirely against the cloud: it lists the projects and sessions that live on the server
+- Real-time session monitoring and chat interaction over a per-session WebSocket
+- API-key authentication
 
 ### Sidebar Customization
 - Drag and drop sidebar tabs to reorder them to your workflow

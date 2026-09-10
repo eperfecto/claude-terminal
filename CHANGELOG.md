@@ -2,6 +2,25 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Removed
+- **Remote UI is cloud-only.** The PWA no longer bridges to the desktop: the relay
+  server (`cloud/src/relay/`), the LAN remote server (`RemoteServer.js`), PIN/QR
+  pairing and the Remote panel are gone. The phone authenticates with a cloud API
+  key and reads only what lives on the cloud server.
+- Mobile features the cloud API cannot serve: git pull/push/status, time tracking,
+  `@` mentions, image attachments, permission prompts (cloud sessions run with
+  `bypassPermissions`) and mid-session model/effort switching — the model and effort
+  pickers now apply to the next session.
+
+### Changed
+- The desktop's cloud connection indicator is a REST probe of `/api/me` every 60 s
+  (`CloudStatusMonitor.js`) instead of the relay socket staying open.
+- Cloud sync picks up remote changes on its periodic pull rather than on a relay push.
+- The `remote-ui/` PWA is no longer bundled into the desktop installer; the cloud
+  server serves it.
+
 ## [1.2.0] - 2026-03-15
 
 ### Added
