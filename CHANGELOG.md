@@ -2,7 +2,7 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.4.1] - 2026-09-10
 
 ### Fixed
 - The cloud image could ship without the gentle-ai binary. `INSTALL_DIR=... curl
