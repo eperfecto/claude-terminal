@@ -13,6 +13,7 @@ const updaterService = require('./UpdaterService');
 const chatService = require('./ChatService');
 const hooksService = require('./HooksService');
 const hookEventServer = require('./HookEventServer');
+const cloudStatusMonitor = require('./CloudStatusMonitor');
 const minecraftService = require('../../project-types/minecraft/main/MinecraftService');
 const remoteServer = require('./RemoteServer');
 const workflowService = require('./WorkflowService');
@@ -356,6 +357,7 @@ function cleanupServices() {
   chatService.closeAll();
   chatService.destroy();
   hookEventServer.stop();
+  cloudStatusMonitor.stop();
   remoteServer.stop();
   workflowService.destroy();
   discordRpcService.destroy();

@@ -1,6 +1,6 @@
 /**
  * Cloud Shared Helpers
- * Common utilities used by both cloud-relay.ipc.js and cloud-projects.ipc.js
+ * Common utilities shared by the cloud IPC handlers.
  */
 
 const fs = require('fs');

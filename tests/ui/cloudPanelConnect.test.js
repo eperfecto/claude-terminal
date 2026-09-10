@@ -5,7 +5,7 @@
  * handlers with `{ settingsState, saveSettings }`. The panel must read that
  * same shape: any mismatch throws inside the async click handler, and because
  * the listener neither awaits nor catches it, the rejection is silent — the
- * Connect button looks dead while nothing is persisted and no socket is dialed.
+ * Connect button looks dead while nothing is persisted and no probe is made.
  */
 
 const { settingsState, saveSettings } = require('../../src/renderer/state/settings.state');
@@ -32,7 +32,7 @@ beforeEach(() => {
 
   const noopUnsub = () => () => {};
   cloudApi = {
-    connect: jest.fn().mockResolvedValue({ ok: true }),
+    connect: jest.fn().mockResolvedValue({ ok: true, connected: true }),
     disconnect: jest.fn().mockResolvedValue({ ok: true }),
     status: jest.fn().mockResolvedValue({ connected: false, serverUrl: null }),
     serverHealth: jest.fn().mockResolvedValue({ version: '0.1.0' }),
@@ -58,7 +58,7 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-test('dials the relay with the credentials typed in the form', async () => {
+test('connects with the credentials typed in the form', async () => {
   await fillAndConnect();
 
   expect(cloudApi.connect).toHaveBeenCalledWith({ serverUrl: SERVER, apiKey: KEY });
@@ -71,7 +71,7 @@ test('persists the credentials so a later session can reuse them', async () => {
   expect(settingsState.get().cloudApiKey).toBe(KEY);
 });
 
-test('refuses to dial when a field is empty, and says so', async () => {
+test('refuses to connect when a field is empty, and says so', async () => {
   await fillAndConnect({ key: '' });
 
   expect(cloudApi.connect).not.toHaveBeenCalled();

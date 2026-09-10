@@ -10,7 +10,10 @@ const fs = require('fs');
 const { zipProject } = require('../utils/zipProject');
 const { execGit } = require('../utils/git');
 const { getTokenForGit } = require('../services/GitHubAuthService');
-const { _getCloudConfig, _fetchCloud, FETCH_DOWNLOAD_TIMEOUT_MS } = require('./cloud-shared');
+const { _getCloudConfig, _fetchCloud, FETCH_DOWNLOAD_TIMEOUT_MS, _loadSettings } = require('./cloud-shared');
+const cloudStatus = require('../services/CloudStatusMonitor');
+const { syncEngine } = require('../services/SyncEngine');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 let mainWindow = null;
 
@@ -18,6 +21,59 @@ let mainWindow = null;
 const _uploadLocks = new Set();
 
 function registerCloudProjectsHandlers() {
+
+  // ── Connection ──
+  //
+  // There is no socket to the cloud any more: reachability is a REST probe, and
+  // `cloud:status-changed` fires only when it flips, because the renderer raises
+  // user-facing toasts on every `connected` event.
+
+  ipcMain.handle('cloud:connect', async (_event, { serverUrl, apiKey } = {}) => {
+    sendFeaturePing('cloud:connect');
+
+    cloudStatus.start({
+      probe: async () => {
+        const { url, key } = _getCloudConfig();
+        const res = await _fetchCloud(`${url}/api/me`, {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        return res.ok;
+      },
+      emit: (status) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('cloud:status-changed', status);
+        }
+      },
+    });
+
+    // Auto-start sync engine if enabled
+    const settings = _loadSettings();
+    if (settings.cloudAutoSync !== false) {
+      syncEngine.start(serverUrl, apiKey).catch(err => {
+        console.error('[Cloud] Auto-start sync failed:', err.message);
+      });
+    }
+
+    const connected = await cloudStatus.probeNow();
+    return { ok: true, connected };
+  });
+
+  ipcMain.handle('cloud:disconnect', async () => {
+    syncEngine.stop();
+    cloudStatus.stop();
+    return { ok: true };
+  });
+
+  ipcMain.handle('cloud:status', async () => ({ connected: cloudStatus.isConnected() }));
+
+  ipcMain.handle('cloud:server-health', async () => {
+    const { url, key } = _getCloudConfig();
+    const res = await _fetchCloud(`${url}/health`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
+    return res.json();
+  });
 
   // ── Project upload (ZIP) ──
 
