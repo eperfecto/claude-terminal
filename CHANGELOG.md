@@ -2,7 +2,7 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
-## [Unreleased]
+## [2.4.0] - 2026-09-10
 
 ### Added
 - Cloud sessions now inherit the configuration in their user's home: settings,
