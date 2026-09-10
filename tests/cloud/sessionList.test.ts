@@ -12,7 +12,7 @@
 
 jest.mock('uuid', () => ({ v4: () => 'unused-in-these-tests' }));
 
-const { mergeSessionList, demoteOrphanedSessions } = require('../../cloud/src/cloud/SessionManager');
+const { mergeSessionList, demoteOrphanedSessions, retireResumedSessions } = require('../../cloud/src/cloud/SessionManager');
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 1_800_000_000_000;
@@ -112,5 +112,37 @@ describe('demoteOrphanedSessions', () => {
     const { sessions } = demoteOrphanedSessions([persisted('a', { status: 'error' })]);
 
     expect(sessions[0].status).toBe('error');
+  });
+});
+
+/**
+ * Resuming a session mints a new id for the continued conversation. The entry it
+ * was resumed from has to go: leaving it behind listed the same conversation
+ * twice — once as the resumable original, once as the session now carrying it.
+ */
+describe('retireResumedSessions', () => {
+  test('drops the entry the new session was resumed from', () => {
+    const { sessions, changed } = retireResumedSessions(
+      [persisted('old'), persisted('other', { sdkSessionId: 'sdk-other' })],
+      'sdk-old',
+    );
+
+    expect(changed).toBe(true);
+    expect(sessions.map((s: any) => s.id)).toEqual(['other']);
+  });
+
+  test('leaves everything alone when resuming from an id it does not hold', () => {
+    // Resuming from the history list passes an SDK id that names no entry here.
+    const { sessions, changed } = retireResumedSessions([persisted('a')], 'sdk-unknown');
+
+    expect(changed).toBe(false);
+    expect(sessions).toHaveLength(1);
+  });
+
+  test('is a no-op for a session that is not a resume', () => {
+    const { sessions, changed } = retireResumedSessions([persisted('a')], undefined);
+
+    expect(changed).toBe(false);
+    expect(sessions).toHaveLength(1);
   });
 });

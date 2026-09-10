@@ -163,6 +163,24 @@ export function demoteOrphanedSessions(stored: UserSession[]): { sessions: UserS
   return { sessions, changed };
 }
 
+
+/**
+ * Drop the entry a new session was resumed from.
+ *
+ * Resuming continues a conversation under a new id, so keeping the old entry
+ * listed the same conversation twice: once as the resumable original and once as
+ * the session now carrying it. Resuming from the history list passes an SDK id
+ * that names no entry here, which simply matches nothing.
+ */
+export function retireResumedSessions(
+  stored: UserSession[],
+  resumedSdkId: string | undefined,
+): { sessions: UserSession[]; changed: boolean } {
+  if (!resumedSdkId) return { sessions: stored, changed: false };
+  const sessions = stored.filter(s => s.sdkSessionId !== resumedSdkId);
+  return { sessions, changed: sessions.length !== stored.length };
+}
+
 export class SessionManager {
   private sessions: Map<string, ActiveSession> = new Map();
   private sdk: any = null;
@@ -281,6 +299,19 @@ export class SessionManager {
     this.sessions.set(sessionId, activeSession);
 
     // Update user.json
+    // Retire the entry this one continues, before persisting the new one — the
+    // conversation moves to the new id rather than being listed under both.
+    if (resumeSessionId) {
+      const user = await store.getUser(userName);
+      if (user) {
+        const { sessions, changed } = retireResumedSessions(user.sessions, resumeSessionId);
+        if (changed) {
+          user.sessions = sessions;
+          await store.saveUser(userName, user);
+        }
+      }
+    }
+
     await this.persistSessionMeta(userName, sessionId, projectName, 'running', model);
 
     // Start SDK query in background with per-user environment
