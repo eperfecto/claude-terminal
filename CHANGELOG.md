@@ -2,6 +2,16 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Opening a session from Control or from the session dropdown showed an empty
+  chat until you wrote into it. Only one of the three ways to open a session
+  pulled its transcript; all of them go through the same path now.
+- Resuming a session listed the conversation twice — once as the original and
+  once as the session now carrying it. The entry a session was resumed from is
+  retired when the resume happens.
+
 ## [2.2.0] - 2026-09-10
 
 ### Fixed

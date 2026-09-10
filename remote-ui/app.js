@@ -1008,12 +1008,24 @@ function _unlistedPastSessions(pastSessions, sessions) {
   );
 }
 
-function openSession(sessionId) {
+/**
+ * Select a session and make sure its conversation is on screen.
+ *
+ * A cloud session is server-owned: this device never saw the events that built
+ * it, so the chat opens blank unless we pull its transcript now. Every control
+ * that selects a session goes through here — the Control list and the session
+ * dropdown each used to set the id themselves and skip the fetch, which is why
+ * they opened blank until the user wrote something.
+ */
+function selectSession(sessionId) {
   state.selectedSessionId = sessionId;
-  switchView('chat');
-  // A cloud session is server-owned: this device never saw the events that
-  // built it, so the chat opens blank unless we pull its transcript now.
+  renderChatMessages();
   _hydrateSelectedSession();
+}
+
+function openSession(sessionId) {
+  switchView('chat');
+  selectSession(sessionId);
 }
 
 function createNewSession() {
@@ -1147,11 +1159,10 @@ function renderControlView() {
       if (!card) return;
       const sessionId = card.dataset.sessionId;
       const projectId = card.dataset.projectId;
-      state.selectedSessionId = sessionId;
       if (projectId && !state.inProjectHub) {
         enterProjectHub(projectId);
       }
-      switchView('chat');
+      openSession(sessionId);
     });
   }
 }
@@ -1360,7 +1371,7 @@ function renderSessionBar() {
       ${escHtml(s.tabName || 'Chat')}${s.resumable ? ` — ${escHtml(t('session.resumable'))}` : ''}
     </option>`
   ).join('');
-  select.onchange = () => { state.selectedSessionId = select.value; renderChatMessages(); };
+  select.onchange = () => selectSession(select.value);
 }
 
 function renderChatMessages() {
@@ -2170,6 +2181,14 @@ async function _startHeadlessSession(projectName, prompt, resumeSessionId) {
   _debugLog('[Cloud] Session created:', sessionId);
   state.activeSessionId = sessionId;
 
+  // The conversation moves to the new id: retire the entry it was resumed from,
+  // or the same chat sits in the list twice until a sync happens to prune it.
+  if (resumeSessionId) {
+    for (const [localId, existing] of Object.entries(state.sessions)) {
+      if (existing.sdkSessionId === resumeSessionId) delete state.sessions[localId];
+    }
+  }
+
   // Create a local session to render messages
   const project = state.projects.find(p => p.name === projectName || p.path?.endsWith(projectName));
   const localSession = _makeSession(`headless-${sessionId}`, project?.id || '', projectName);
@@ -2455,7 +2474,7 @@ function _cleanupHeadlessSession() {
 // A CommonJS test runner has no browser to boot, so expose the pure helpers
 // instead — they get exercised against this implementation, not a copy of it.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { _cloudProjectName, sendMessage, interruptSession, _pickSessionToRejoin, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _applyServerVersion, _fetchServerVersion, _filterProjects, state, conn };
+  module.exports = { _cloudProjectName, sendMessage, selectSession, renderControlView, renderSessionBar, interruptSession, _pickSessionToRejoin, _syncCloudSessions, _loadCloudTranscript, _hydrateSelectedSession, openSession, _unlistedPastSessions, _startHeadlessSession, _fetchCloudProjects, _openSessionStream, _applyServerVersion, _fetchServerVersion, _filterProjects, state, conn };
 } else {
   init();
 }

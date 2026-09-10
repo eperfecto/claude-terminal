@@ -149,4 +149,24 @@ describe('sending into a resumable session', () => {
     expect(body.resumeSessionId).toBe('sdk-a');
     expect(body.prompt).toBe('seguimos');
   });
+
+  test('retires the session it resumed from, so it is not listed twice', async () => {
+    // The conversation moves to the new id. Leaving the old entry on screen shows
+    // the same chat twice until the next sync happens to prune it.
+    state.sessions['headless-a'] = {
+      sessionId: 'headless-a', messages: [], resumable: true, sdkSessionId: 'sdk-a',
+      projectId: 'cloud-agrak-http', tabName: 'agrak-http',
+    };
+    state.selectedSessionId = 'headless-a';
+    state.activeSessionId = null;
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ sessionId: 'new-1', messages: [] }),
+    }));
+
+    sendMessage();
+    await flush();
+
+    expect(state.sessions['headless-a']).toBeUndefined();
+    expect(state.sessions['headless-new-1']).toBeDefined();
+  });
 });
