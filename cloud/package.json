@@ -1,7 +1,7 @@
 {
   "name": "claude-terminal-cloud",
   "version": "0.2.0",
-  "description": "Self-hosted relay & cloud server for Claude Terminal",
+  "description": "Self-hosted cloud server for Claude Terminal",
   "main": "dist/index.js",
   "bin": {
     "ct-cloud": "dist/cli.js"

@@ -3,13 +3,10 @@ import path from 'path';
 import express from 'express';
 import { config } from './config';
 import { store } from './store/store';
-import { RelayServer } from './relay/RelayServer';
 import { createCloudRouter } from './cloud/CloudAPI';
 import { sessionManager } from './cloud/SessionManager';
 import { authenticateApiKey, buildKeyIndex } from './auth/auth';
 import { WebSocket, WebSocketServer } from 'ws';
-
-let relayServer: RelayServer;
 
 // ── In-memory circular log buffer for admin TUI ──
 const MAX_LOG_ENTRIES = 500;
@@ -69,11 +66,9 @@ export async function startServer(): Promise<void> {
 
   // Health check
   app.get('/health', (_req, res) => {
-    const stats = relayServer ? relayServer.getStats() : null;
     res.json({
       status: 'ok',
       version: require('../package.json').version,
-      relay: stats,
       cloud: config.cloudEnabled,
     });
   });
@@ -93,18 +88,11 @@ export async function startServer(): Promise<void> {
     next();
   });
 
-  app.get('/admin/rooms', (_req, res) => {
-    res.json(relayServer ? relayServer.listRooms() : []);
-  });
-
   app.get('/admin/logs', (_req, res) => {
     res.json(getLogBuffer());
   });
 
   const server = http.createServer(app);
-
-  // Relay WS server (handles /relay upgrade) — must be created before CloudRouter
-  relayServer = new RelayServer(server);
 
   // Cloud API routes
   app.use('/api', createCloudRouter());
@@ -122,17 +110,13 @@ export async function startServer(): Promise<void> {
     res.sendFile(path.join(remoteUiDir, 'index.html'));
   });
 
-  // Wire relay into session manager so stream events go through relay WS
-  sessionManager.setRelayServer(relayServer);
+  sessionManager.start();
 
   // Session stream WS (handles /api/sessions/:id/stream upgrade)
   const sessionWss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
-
-    // /relay is handled by RelayServer
-    if (url.pathname === '/relay') return;
 
     // /api/sessions/:id/stream
     const streamMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
@@ -174,7 +158,6 @@ export async function startServer(): Promise<void> {
   server.listen(config.port, config.host, () => {
     console.log('');
     console.log(`  Claude Terminal Cloud v${require('../package.json').version}`);
-    console.log(`  Relay:  ws://${config.host}:${config.port}/relay`);
     if (config.cloudEnabled) {
       console.log(`  API:    http://${config.host}:${config.port}/api`);
     }

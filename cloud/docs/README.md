@@ -1,11 +1,11 @@
 # Claude Terminal Cloud
 
-Self-hosted relay & cloud server for [Claude Terminal](https://github.com/Sterll/claude-terminal).
+Self-hosted cloud server for [Claude Terminal](https://github.com/Sterll/claude-terminal).
 
 ## What it does
 
-- **WS Relay**: Bridge desktop↔mobile from anywhere (not just same Wi-Fi)
-- **Cloud Projects**: Upload projects, run Agent SDK sessions headless — code from mobile without desktop
+- **Cloud Projects**: Upload projects, run Agent SDK sessions headless — code from mobile without a desktop
+- **Mobile PWA**: Served from this server and talks only to it, so a phone never needs to reach your desktop
 
 ## Quick Start
 
@@ -36,7 +36,7 @@ docker compose up -d
 docker exec -it ct-cloud node dist/cli.js user add <name>
 ```
 
-This prints an API key. Paste it in Claude Terminal → Settings → Remote → Cloud Relay.
+This prints an API key. Paste it in Claude Terminal → Connectivity → Cloud, or in the mobile PWA.
 
 ### Node.js (no Docker)
 
@@ -67,7 +67,7 @@ ct-cloud start                   # Start server
 | `PORT` | `3800` | Server port |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PUBLIC_URL` | `http://localhost:3800` | Public URL (for mobile connections) |
-| `CLOUD_ENABLED` | `true` | `false` = relay-only (no cloud sessions) |
+| `CLOUD_ENABLED` | `true` | `false` = disable the cloud API (no cloud sessions) |
 | `MAX_PROJECTS_PER_USER` | `20` | Max projects per user |
 | `MAX_SESSIONS` | `5` | Total concurrent Agent SDK sessions |
 | `CLAUDE_CREDENTIALS_PATH` | `~/.claude/.credentials.json` | Claude OAuth credentials |
@@ -79,13 +79,6 @@ ct-cloud start                   # Start server
 See [nginx.conf.example](nginx.conf.example) and [caddy.example](caddy.example) for HTTPS setup.
 
 ## API
-
-### Relay WebSocket
-
-```
-/relay?role=desktop&token=<API_KEY>
-/relay?role=mobile&token=<API_KEY>
-```
 
 ### REST API
 
@@ -108,11 +101,11 @@ WS     /api/sessions/:id/stream     Real-time session events
 ## Architecture
 
 ```
-Desktop (Electron)  ←WSS→  Cloud Server  ←WSS→  Mobile PWA
-                            ├─ Relay (WS rooms, 1 desktop + 5 mobiles per user)
-                            ├─ REST API (projects CRUD, sessions)
-                            ├─ Agent SDK headless (cloud coding)
-                            └─ CLI admin (user management)
+Desktop (Electron)  ─REST→  Cloud Server  ←─REST + per-session WS─  Mobile PWA
+                             ├─ REST API (projects CRUD, sessions)
+                             ├─ WS /api/sessions/:id/stream (live session events)
+                             ├─ Agent SDK headless (cloud coding)
+                             └─ CLI admin (user management)
 ```
 
 ## Data Storage

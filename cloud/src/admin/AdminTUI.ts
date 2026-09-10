@@ -11,10 +11,9 @@ import { c, style, hline, fmtDuration, box } from './ansi';
 import { config } from '../config';
 import { OverviewTab } from './tabs/OverviewTab';
 import { UsersTab } from './tabs/UsersTab';
-import { RoomsTab } from './tabs/RoomsTab';
 import { LogsTab } from './tabs/LogsTab';
 
-const TAB_NAMES = ['Overview', 'Users', 'Rooms', 'Logs'];
+const TAB_NAMES = ['Overview', 'Users', 'Logs'];
 
 interface Tab {
   load(): Promise<void>;
@@ -42,12 +41,11 @@ export class AdminTUI {
 
     const overviewTab = new OverviewTab(this.screen, this.serverUrl);
     const usersTab = new UsersTab(this.screen);
-    const roomsTab = new RoomsTab(this.screen, this.serverUrl);
     const logsTab = new LogsTab(this.screen, this.serverUrl);
 
     usersTab.setRenderCallback(() => { this.dirty = true; });
 
-    this.tabs = [overviewTab, usersTab, roomsTab, logsTab];
+    this.tabs = [overviewTab, usersTab, logsTab];
   }
 
   async start(): Promise<void> {

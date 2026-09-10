@@ -266,7 +266,7 @@ async function status(): Promise<void> {
   console.log(`\n  Claude Terminal Cloud`);
   console.log(`  Port:     ${config.port}`);
   console.log(`  URL:      ${config.publicUrl}`);
-  console.log(`  Cloud:    ${config.cloudEnabled ? 'enabled' : 'relay-only'}`);
+  console.log(`  Cloud:    ${config.cloudEnabled ? 'enabled' : 'disabled'}`);
   console.log(`  Users:    ${users.length}`);
   console.log(`  Since:    ${new Date(serverData.createdAt).toLocaleDateString()}`);
   console.log('');

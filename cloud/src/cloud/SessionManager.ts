@@ -6,7 +6,6 @@ import { store, UserSession } from '../store/store';
 import { config } from '../config';
 import { projectManager } from './ProjectManager';
 import { FileWatcher } from './FileWatcher';
-import type { RelayServer } from '../relay/RelayServer';
 
 interface ActiveSession {
   id: string;
@@ -76,13 +75,10 @@ function createMessageQueue(onIdle?: () => void) {
 export class SessionManager {
   private sessions: Map<string, ActiveSession> = new Map();
   private sdk: any = null;
-  private relayServer: RelayServer | null = null;
   private _cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-  setRelayServer(relay: RelayServer): void {
-    this.relayServer = relay;
-
-    // Start periodic cleanup for stale sessions
+  /** Begin periodic cleanup of stale sessions. Called once at server start. */
+  start(): void {
     if (!this._cleanupTimer) {
       this._cleanupTimer = setInterval(() => this._cleanupStaleSessions(), 15 * 60_000);
       this._cleanupTimer.unref();
@@ -510,18 +506,9 @@ export class SessionManager {
     if (!session) return;
     const msg = JSON.stringify(data);
 
-    // Send to direct WS stream clients
     for (const ws of session.streamClients) {
       if (ws.readyState === WebSocket.OPEN) {
         try { ws.send(msg); } catch { /* client disconnected */ }
-      }
-    }
-
-    // Also send via relay WS to mobile clients (avoids needing a 2nd WS on iOS Safari)
-    if (this.relayServer) {
-      const room = this.relayServer.getRoomForUser(session.userName);
-      if (room) {
-        room.broadcastToMobiles({ type: 'stream', sessionId, data });
       }
     }
   }
