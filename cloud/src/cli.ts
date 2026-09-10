@@ -120,6 +120,16 @@ function prompt(question: string): Promise<string> {
   });
 }
 
+/** Whether a binary is on PATH, so an optional step can be skipped cleanly. */
+function commandExists(bin: string): boolean {
+  try {
+    execSync(process.platform === 'win32' ? `where ${bin}` : `command -v ${bin}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function userSetup(name: string): Promise<void> {
   if (!name) {
     console.error('Error: provide a user name');
@@ -229,6 +239,25 @@ async function userSetup(name: string): Promise<void> {
 
   if (fs.existsSync(credPath)) {
     console.log('\n  ✓ Claude authenticated successfully');
+
+    // Configure this user's Claude the same way gentle-ai configures a desktop:
+    // settings, hooks, skills, plugins and engram, written into THIS home. The
+    // binary lives in the image, but its output belongs to the user's home in
+    // the data volume — which is the home sessions read, so there is one source
+    // rather than a machine-wide config the sessions never see.
+    if (commandExists('gentle-ai')) {
+      console.log('\n  Configuring Claude with gentle-ai...');
+      try {
+        execSync('gentle-ai install --agents claude-code --scope global', {
+          stdio: 'inherit',
+          env: { ...process.env, HOME: userHome },
+        });
+        console.log('  ✓ gentle-ai configured');
+      } catch {
+        // A failed setup costs this user its skills, not its account.
+        console.log('  ! gentle-ai setup failed — the user still works, without its skills');
+      }
+    }
   } else {
     console.log('\n  ✗ Authentication may have failed. Retry with:');
     console.log(`    docker exec -it ct-cloud node dist/cli.js user setup ${name}`);

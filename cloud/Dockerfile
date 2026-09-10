@@ -28,6 +28,17 @@ USER root
 # Symlink claude to /usr/local/bin so docker exec can find it
 RUN ln -sf /home/claude/.local/bin/claude /usr/local/bin/claude 2>/dev/null || true
 
+# Machine-wide tooling for sessions. The per-user configuration these produce is
+# NOT baked here: it belongs to a user's home inside the data volume, so
+# `cli.js user setup` writes it. Only the binaries live in the image.
+#
+# gentle-ai carries engram, context7, the skills and the SDD components as part
+# of its claude-code preset, so this one install covers them.
+RUN INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash
+
+# codegraph backs the MCP of the same name
+RUN npm install -g @colbymchenry/codegraph
+
 COPY cloud/package.json cloud/package-lock.json* ./
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 

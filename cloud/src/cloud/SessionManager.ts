@@ -5,6 +5,7 @@ import { WebSocket } from 'ws';
 import { store, UserSession } from '../store/store';
 import { config } from '../config';
 import { projectManager } from './ProjectManager';
+import { loadMcpServers } from './mcpConfig';
 import { FileWatcher } from './FileWatcher';
 
 interface ActiveSession {
@@ -238,6 +239,9 @@ export class SessionManager {
   }
 
   private getSdkCliPath(): string {
+    // An operator-chosen binary wins: see config.claudeCliPath for why this is
+    // opt-in rather than the default.
+    if (config.claudeCliPath) return config.claudeCliPath;
     try {
       return require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
     } catch {
@@ -323,6 +327,12 @@ export class SessionManager {
       permissionMode: 'bypassPermissions',
       pathToClaudeCodeExecutable: this.getSdkCliPath(),
       systemPrompt: { type: 'preset', preset: 'claude_code' },
+      // Without this the SDK runs in isolation mode and reads nothing off disk:
+      // no settings, no hooks, no plugins, no skills, no CLAUDE.md. That made a
+      // cloud session behave unlike the same project on the desktop, and left
+      // whatever gentle-ai had configured in this home unread.
+      settingSources: ['user', 'project'],
+      mcpServers: loadMcpServers(userHome),
       stderr: (data: string) => { console.error(`[Session ${sessionId}] ${data}`); },
       env: {
         ...process.env,

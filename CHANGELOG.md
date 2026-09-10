@@ -2,6 +2,21 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Cloud sessions now inherit the configuration in their user's home: settings,
+  hooks, skills, plugins and `CLAUDE.md` (`settingSources`), plus the MCP servers
+  declared in `.claude.json`. They used to run in the SDK's isolation mode, which
+  reads nothing off disk — so a cloud session behaved unlike the same project on
+  the desktop.
+- The cloud image ships gentle-ai and codegraph, and `user setup` runs
+  `gentle-ai install` into that user's home, so one configuration serves both the
+  setup and the sessions.
+- `CLAUDE_CLI_PATH` selects the Claude binary that runs sessions. Left unset it
+  stays the one bundled with the SDK; point it at `/usr/local/bin/claude` to run
+  the single CLI gentle-ai installs and configures.
+
 ## [2.3.0] - 2026-09-10
 
 ### Added

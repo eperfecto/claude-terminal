@@ -29,6 +29,18 @@ export const config = {
   maxUploadBytes: parseBytes(process.env.MAX_UPLOAD_SIZE || '100mb'),
   sessionTimeoutHours: parseInt(process.env.SESSION_TIMEOUT_HOURS || '24', 10),
 
+  /**
+   * Which Claude binary runs sessions. Empty means the one bundled with the SDK,
+   * which is the version the SDK was built against.
+   *
+   * Point it at the standalone CLI (/usr/local/bin/claude) to have a single
+   * Claude in the container — the one gentle-ai installs and configures. That is
+   * the intent, but the SDK speaks a protocol with this binary and a
+   * self-updating CLI can drift out of step with it, so it stays opt-in: a
+   * mismatch stops sessions from starting, and you would find out from a phone.
+   */
+  claudeCliPath: process.env.CLAUDE_CLI_PATH || '',
+
   adminToken: process.env.ADMIN_TOKEN || '',
   corsOrigins: process.env.CORS_ORIGINS || '*',
   rateLimitPerMinute: parseInt(process.env.RATE_LIMIT_PER_MINUTE || '120', 10),
