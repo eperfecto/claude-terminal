@@ -2495,21 +2495,32 @@ class TerminalManager extends BaseComponent {
     return count;
   }
 
+  /**
+   * Tab counts for a project's Claude tabs.
+   *
+   * `loading` is reported separately from `working` because a booting tab is
+   * neither: the project list would otherwise read "total minus working" as
+   * idle and paint a starting session as parked.
+   * @param {number} projectIndex
+   * @returns {{ total: number, working: number, loading: number }}
+   */
   getTerminalStatsForProject(projectIndex) {
-    if (projectIndex === null || projectIndex === undefined) return { total: 0, working: 0 };
+    if (projectIndex === null || projectIndex === undefined) return { total: 0, working: 0, loading: 0 };
     const projects = projectsState.get().projects;
     const project = projects[projectIndex];
-    if (!project) return { total: 0, working: 0 };
+    if (!project) return { total: 0, working: 0, loading: 0 };
     let total = 0;
     let working = 0;
+    let loading = 0;
     const terminals = terminalsState.get().terminals;
     terminals.forEach(termData => {
       if (termData.project && (termData.project.path === project.path || (termData.parentProjectId && termData.parentProjectId === project.id)) && termData.type !== 'fivem' && termData.type !== 'webapp' && termData.type !== 'file' && !termData.isBasic) {
         total++;
         if (termData.status === 'working') working++;
+        else if (termData.status === 'loading') loading++;
       }
     });
-    return { total, working };
+    return { total, working, loading };
   }
 
   showAll() {

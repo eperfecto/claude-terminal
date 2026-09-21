@@ -360,6 +360,24 @@ body.compact-projects .project-item:not(.active) .project-name {
   margin-bottom: 0;
 }
 
+/* Live session state. A project with open Claude tabs is tinted by what those
+   tabs are doing: accent while Claude works, success while they sit idle — the
+   same two colors the terminal tab dots use, so both surfaces agree.
+   color-mix() over var(--accent) keeps this correct when the user picks a
+   different accent color, and mixing into var(--bg-tertiary) rather than
+   transparent keeps the row on the same card surface as an untinted one.
+   These touch background only: border-color belongs to .path-missing, which
+   marks a broken path with a left bar and must stay readable underneath.
+   Declared before .active, which carries the same specificity, so a selected
+   row keeps its own background by source order. */
+.project-item.session-working {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary));
+}
+
+.project-item.session-idle {
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-tertiary));
+}
+
 .project-item:hover {
   border-color: var(--text-muted);
   background: var(--bg-hover);
@@ -368,6 +386,21 @@ body.compact-projects .project-item:not(.active) .project-name {
 body.compact-projects .project-item:not(.active):hover {
   border-color: var(--border-color);
   background: var(--bg-hover, var(--bg-secondary));
+}
+
+/* Hover must not erase the state it is hovering over: both generic hover rules
+   above set a background and would otherwise repaint a working row grey. Each
+   state is restated twice — plainly to outweigh `.project-item:hover`, and
+   compact-scoped to outweigh the `body`-prefixed one. Selected rows are
+   excluded so .active keeps its own background. */
+.project-item.session-working:not(.active):hover,
+body.compact-projects .project-item.session-working:not(.active):hover {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-tertiary));
+}
+
+.project-item.session-idle:not(.active):hover,
+body.compact-projects .project-item.session-idle:not(.active):hover {
+  background: color-mix(in srgb, var(--success) 14%, var(--bg-tertiary));
 }
 
 .project-item.active {
