@@ -360,6 +360,22 @@ body.compact-projects .project-item:not(.active) .project-name {
   margin-bottom: 0;
 }
 
+/* Live session state. A project with open Claude tabs is tinted by what those
+   tabs are doing: accent while Claude works, success while they sit idle — the
+   same two colors the terminal tab dots use, so both surfaces agree.
+   color-mix() over var(--accent) keeps this correct when the user picks a
+   different accent color. Declared before :hover and .active on purpose: they
+   carry the same specificity, so source order lets both still win. */
+.project-item.session-working {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.project-item.session-idle {
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  border-color: color-mix(in srgb, var(--success) 20%, transparent);
+}
+
 .project-item:hover {
   border-color: var(--text-muted);
   background: var(--bg-hover);
@@ -368,6 +384,22 @@ body.compact-projects .project-item:not(.active) .project-name {
 body.compact-projects .project-item:not(.active):hover {
   border-color: var(--border-color);
   background: var(--bg-hover, var(--bg-secondary));
+}
+
+/* Hover must not erase the state it is hovering over. Both generic hover rules
+   above would otherwise repaint the row grey, so each state is restated once
+   plainly and once compact-scoped to outweigh them. Selected rows are excluded
+   so .active keeps its own styling. */
+.project-item.session-working:not(.active):hover,
+body.compact-projects .project-item.session-working:not(.active):hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.project-item.session-idle:not(.active):hover,
+body.compact-projects .project-item.session-idle:not(.active):hover {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  border-color: color-mix(in srgb, var(--success) 32%, transparent);
 }
 
 .project-item.active {

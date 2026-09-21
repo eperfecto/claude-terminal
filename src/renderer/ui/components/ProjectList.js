@@ -510,8 +510,17 @@ class ProjectList extends BaseComponent {
     }
     const tooltipHtml = `<div class="project-tooltip">${tooltipLines.join('')}</div>`;
 
+    // Tint the row by what the project's Claude tabs are doing right now, so the
+    // list answers "who is busy?" without opening anything. `active` on this row
+    // already means "selected by the project filter", hence the session- prefix.
+    // TerminalManager.updateTerminalStatus() re-renders the list on every status
+    // change, so no extra subscription is needed to keep this fresh.
+    const sessionClass = terminalStats.working > 0
+      ? 'session-working'
+      : terminalStats.total > 0 ? 'session-idle' : '';
+
     return `
-    <div class="project-item ${isSelected ? 'active' : ''} ${project.archived ? 'archived' : ''} ${pathMissing ? 'path-missing' : ''} ${typeHandler.getProjectItemClass(typeCtx)}"
+    <div class="project-item ${isSelected ? 'active' : ''} ${sessionClass} ${project.archived ? 'archived' : ''} ${pathMissing ? 'path-missing' : ''} ${typeHandler.getProjectItemClass(typeCtx)}"
          data-project-id="${project.id}" data-depth="${depth}" draggable="true" tabindex="0"
          style="margin-left: ${depth * 16}px;">
       ${tooltipHtml}
