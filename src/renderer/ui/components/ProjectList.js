@@ -115,7 +115,7 @@ class ProjectList extends BaseComponent {
       onRenameProject: null,
       onRenderProjects: null,
       countTerminalsForProject: () => 0,
-      getTerminalStatsForProject: () => ({ total: 0, working: 0 })
+      getTerminalStatsForProject: () => ({ total: 0, working: 0, loading: 0 })
     };
 
     // External state references
@@ -515,9 +515,14 @@ class ProjectList extends BaseComponent {
     // already means "selected by the project filter", hence the session- prefix.
     // TerminalManager.updateTerminalStatus() re-renders the list on every status
     // change, so no extra subscription is needed to keep this fresh.
+    //
+    // A tab can be loading, ready or working. Only a settled tab earns the idle
+    // tint: deriving idle from "not working" would paint a session that is still
+    // booting as parked, and the tab dot already shows loading as neutral grey.
+    const settledTabs = terminalStats.total - (terminalStats.loading || 0);
     const sessionClass = terminalStats.working > 0
       ? 'session-working'
-      : terminalStats.total > 0 ? 'session-idle' : '';
+      : settledTabs > 0 ? 'session-idle' : '';
 
     return `
     <div class="project-item ${isSelected ? 'active' : ''} ${sessionClass} ${project.archived ? 'archived' : ''} ${pathMissing ? 'path-missing' : ''} ${typeHandler.getProjectItemClass(typeCtx)}"
