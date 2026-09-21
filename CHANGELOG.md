@@ -2,6 +2,15 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [2.6.0] - 2026-09-21
+
+### Added
+- Project rows in the sidebar are now tinted by what their Claude tabs are doing:
+  an accent tint while at least one tab is working, and a green tint once every
+  tab has settled with nothing left running. Rows with no Claude tabs, or tabs
+  still starting up, stay untinted. Now you can see which project needs
+  attention without opening it.
+
 ## [2.5.0] - 2026-09-10
 
 ### Added
