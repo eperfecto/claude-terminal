@@ -54,6 +54,7 @@ const registry = require('../../../project-types/registry');
 const { createChatView } = require('./ChatView');
 const { showContextMenu } = require('./ContextMenu');
 const ContextPromptService = require('../../services/ContextPromptService');
+const { parseRenameCommand } = require('../../utils/tabRenameCommand');
 const { getBuiltinSystemPrompt } = require('../../services/BuiltinSystemPrompts');
 
 // BCP 47 tags used for date formatting, one per supported UI language.
@@ -578,7 +579,9 @@ class TerminalManager extends BaseComponent {
     return !!(td && td.name && td.name.startsWith('/'));
   }
 
-  _autoNameTabFromInput(id, input) {
+  _nameTabFromInput(id, input) {
+    const command = parseRenameCommand(input);
+    if (command) return this.renameTabFromCommand(id, command.name);
     if (getSetting('aiTabNaming') === false) return;
     const title = extractTitleFromInput(input);
     if (title) this.updateTerminalTabName(id, title);
@@ -1227,6 +1230,12 @@ class TerminalManager extends BaseComponent {
     TerminalSessionService.saveTerminalSessions();
   }
 
+  // `/rename <name>` names and locks the tab; a bare `/rename` unlocks it.
+  renameTabFromCommand(id, name) {
+    if (name) return this.updateTerminalTabName(id, name, { manual: true });
+    this.unlockTabName(id);
+  }
+
   _dismissLoadingOverlay(id) {
     const wrapper = document.querySelector(`.terminal-wrapper[data-id="${id}"]`);
     const overlay = wrapper?.querySelector('.terminal-loading-overlay');
@@ -1848,7 +1857,7 @@ class TerminalManager extends BaseComponent {
         if (self._scrapingEventCallback) self._scrapingEventCallback(id, 'input', {});
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          self._autoNameTabFromInput(id, td.inputBuffer);
+          self._nameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -3061,7 +3070,7 @@ class TerminalManager extends BaseComponent {
         self.updateTerminalStatus(id, 'working');
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          self._autoNameTabFromInput(id, td.inputBuffer);
+          self._nameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -3229,7 +3238,7 @@ class TerminalManager extends BaseComponent {
         self.updateTerminalStatus(id, 'working');
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          self._autoNameTabFromInput(id, td.inputBuffer);
+          self._nameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -4022,6 +4031,7 @@ class TerminalManager extends BaseComponent {
         if (onSessionStart) onSessionStart(sid);
       },
       onTabRename: (name) => self.updateTerminalTabName(id, name),
+      onRenameCommand: (name) => self.renameTabFromCommand(id, name),
       onStatusChange: (status, substatus) => self._updateChatTerminalStatus(id, status, substatus),
       onSwitchTerminal: (dir) => self._callbacks.onSwitchTerminal?.(dir),
       onSwitchProject: (dir) => self._callbacks.onSwitchProject?.(dir),
@@ -4099,6 +4109,7 @@ class TerminalManager extends BaseComponent {
         terminalId: id,
         skipPermissions: getSetting('skipPermissions') || false,
         builtinSystemPrompt: getBuiltinSystemPrompt(project.type),
+        onRenameCommand: (name) => self.renameTabFromCommand(id, name),
         onStatusChange: (status, substatus) => self._updateChatTerminalStatus(id, status, substatus),
         onSwitchTerminal: (dir) => self._callbacks.onSwitchTerminal?.(dir),
         onSwitchProject: (dir) => self._callbacks.onSwitchProject?.(dir),

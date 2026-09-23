@@ -100,20 +100,51 @@ describe('tab naming', () => {
 
   describe('naming from typed terminal input', () => {
     test('renames the tab when AI tab naming is on', () => {
-      manager._autoNameTabFromInput(ID, 'fix the login redirect bug');
+      manager._nameTabFromInput(ID, 'fix the login redirect bug');
       expect(getTerminal(ID).name).toBe('Fix Login Redirect Bug');
     });
 
     test('leaves the tab alone when AI tab naming is off', () => {
       setSetting('aiTabNaming', false);
-      manager._autoNameTabFromInput(ID, 'fix the login redirect bug');
+      manager._nameTabFromInput(ID, 'fix the login redirect bug');
       expect(getTerminal(ID).name).toBe('my-project');
     });
 
     test('leaves a locked tab alone', async () => {
       await manager.updateTerminalTabName(ID, 'Mine', { manual: true });
-      manager._autoNameTabFromInput(ID, 'fix the login redirect bug');
+      manager._nameTabFromInput(ID, 'fix the login redirect bug');
       expect(getTerminal(ID).name).toBe('Mine');
+    });
+  });
+
+  describe('the /rename command', () => {
+    test('names and locks the tab even with AI tab naming on', () => {
+      manager._nameTabFromInput(ID, '/rename Release prep');
+      expect(getTerminal(ID).name).toBe('Release prep');
+      expect(getTerminal(ID).nameLocked).toBe(true);
+      manager._nameTabFromInput(ID, 'fix the login redirect bug');
+      expect(getTerminal(ID).name).toBe('Release prep');
+    });
+
+    test('works with AI tab naming off', () => {
+      setSetting('aiTabNaming', false);
+      manager._nameTabFromInput(ID, '/name Release prep');
+      expect(getTerminal(ID).name).toBe('Release prep');
+    });
+
+    test('renames a tab that is already locked', async () => {
+      await manager.updateTerminalTabName(ID, 'Mine', { manual: true });
+      manager._nameTabFromInput(ID, '/rename Release prep');
+      expect(getTerminal(ID).name).toBe('Release prep');
+    });
+
+    test('without a name hands the tab back to automatic naming', async () => {
+      await manager.updateTerminalTabName(ID, 'Mine', { manual: true });
+      manager._nameTabFromInput(ID, '/rename');
+      expect(getTerminal(ID).name).toBe('Mine');
+      expect(getTerminal(ID).nameLocked).toBe(false);
+      manager._nameTabFromInput(ID, 'fix the login redirect bug');
+      expect(getTerminal(ID).name).toBe('Fix Login Redirect Bug');
     });
   });
 });
