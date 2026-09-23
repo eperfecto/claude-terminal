@@ -121,6 +121,7 @@ function unescapeHtml(html) {
 }
 
 const { parseDroppedPathsPayload } = require('../../utils/dropPaths');
+const { parseRenameCommand } = require('../../utils/tabRenameCommand');
 
 // ── Context Suggestions ──
 
@@ -357,7 +358,7 @@ class ChatView extends BaseComponent {
 
   createChatView(wrapperEl, project, options = {}) {
     const api = this._api;
-  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, resumeDropsTurn = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null, builtinSystemPrompt = null } = options;
+  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, resumeDropsTurn = null, skipPermissions = false, onTabRename = null, onRenameCommand = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null, builtinSystemPrompt = null } = options;
   let sessionId = null;
   let isStreaming = false;
   let isAborting = false;
@@ -1308,7 +1309,7 @@ class ChatView extends BaseComponent {
       '/batch', '/simplify', '/debug', '/loop', '/claude-api',
       '/security-review', '/btw', '/review',
       // Claude Terminal own commands
-      '/parallel-task', '/reload-plugins',
+      '/parallel-task', '/reload-plugins', '/rename',
     ];
     // Normalize to '/name' lowercase so SDK-provided commands (sometimes without leading '/')
     // match our '/name' skill/builtin entries and don't show up twice.
@@ -1385,6 +1386,7 @@ class ChatView extends BaseComponent {
       // Claude Terminal commands
       '/parallel-task': t('chat.slashParallelTask'),
       '/reload-plugins': t('chat.slashReloadPlugins'),
+      '/rename': t('chat.slashRename'),
     };
     if (descriptions[cmd]) return descriptions[cmd];
     // Check skills for description
@@ -2663,6 +2665,17 @@ class ChatView extends BaseComponent {
     const hasImages = pendingImages.length > 0;
     const hasMentions = pendingMentions.length > 0;
     if ((!text && !hasImages && !hasMentions) || sendLock) return;
+
+    // /rename names this tab locally; the SDK cannot run Claude Code's own /rename
+    const renameCommand = onRenameCommand ? parseRenameCommand(text) : null;
+    if (renameCommand) {
+      setInputText('');
+      onRenameCommand(renameCommand.name);
+      appendSystemNotice(renameCommand.name
+        ? t('chat.tabRenamed', { name: renameCommand.name })
+        : t('chat.tabNameUnlocked'));
+      return;
+    }
 
     // /parallel-task interception: strip prefix, set force flag
     if (text === '/parallel-task' || text.startsWith('/parallel-task ')) {

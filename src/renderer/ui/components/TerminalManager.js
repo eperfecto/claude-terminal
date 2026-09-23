@@ -54,6 +54,7 @@ const registry = require('../../../project-types/registry');
 const { createChatView } = require('./ChatView');
 const { showContextMenu } = require('./ContextMenu');
 const ContextPromptService = require('../../services/ContextPromptService');
+const { parseRenameCommand } = require('../../utils/tabRenameCommand');
 const { getBuiltinSystemPrompt } = require('../../services/BuiltinSystemPrompts');
 
 // BCP 47 tags used for date formatting, one per supported UI language.
@@ -576,6 +577,14 @@ class TerminalManager extends BaseComponent {
     if (!getSetting('tabRenameOnSlashCommand')) return false;
     const td = getTerminal(id);
     return !!(td && td.name && td.name.startsWith('/'));
+  }
+
+  _nameTabFromInput(id, input) {
+    const command = parseRenameCommand(input);
+    if (command) return this.renameTabFromCommand(id, command.name);
+    if (getSetting('aiTabNaming') === false) return;
+    const title = extractTitleFromInput(input);
+    if (title) this.updateTerminalTabName(id, title);
   }
 
   _scheduleReady(id) {
@@ -1189,11 +1198,14 @@ class TerminalManager extends BaseComponent {
 
   // ── Terminal tab name & status ──
 
-  async updateTerminalTabName(id, name) {
+  // A name the user typed locks the tab: automatic sources (Claude's title,
+  // typed input, AI naming, slash commands) never overwrite it again.
+  async updateTerminalTabName(id, name, { manual = false } = {}) {
     const termData = getTerminal(id);
     if (!termData) return;
+    if (!manual && termData.nameLocked) return;
 
-    updateTerminal(id, { name });
+    updateTerminal(id, manual ? { name, nameLocked: true } : { name });
 
     if (termData.claudeSessionId && name) {
       await this._setSessionCustomName(termData.claudeSessionId, name);
@@ -1208,6 +1220,20 @@ class TerminalManager extends BaseComponent {
     }
     const TerminalSessionService = require('../../services/TerminalSessionService');
     TerminalSessionService.saveTerminalSessions();
+  }
+
+  // Hands a tab the user named back to automatic naming.
+  unlockTabName(id) {
+    if (!getTerminal(id)?.nameLocked) return;
+    updateTerminal(id, { nameLocked: false });
+    const TerminalSessionService = require('../../services/TerminalSessionService');
+    TerminalSessionService.saveTerminalSessions();
+  }
+
+  // `/rename <name>` names and locks the tab; a bare `/rename` unlocks it.
+  renameTabFromCommand(id, name) {
+    if (name) return this.updateTerminalTabName(id, name, { manual: true });
+    this.unlockTabName(id);
   }
 
   _dismissLoadingOverlay(id) {
@@ -1310,12 +1336,17 @@ class TerminalManager extends BaseComponent {
     input.focus();
     input.select();
 
+    let cancelled = false;
+    // Confirming locks the name, even an unchanged one. An empty field hands
+    // the tab back to automatic naming, and Escape leaves everything as it is.
     const finishRename = () => {
-      const newName = input.value.trim() || currentName;
-      updateTerminal(id, { name: newName });
+      const newName = cancelled ? '' : input.value.trim();
+      if (newName) self.updateTerminalTabName(id, newName, { manual: true });
+      else if (!cancelled) self.unlockTabName(id);
       const newSpan = document.createElement('span');
       newSpan.className = 'tab-name';
-      newSpan.textContent = newName;
+      // Read the name back: an automatic rename may have landed while editing.
+      newSpan.textContent = getTerminal(id)?.name || currentName;
       newSpan.ondblclick = (e) => { e.stopPropagation(); self._startRenameTab(id); };
       input.replaceWith(newSpan);
     };
@@ -1323,7 +1354,7 @@ class TerminalManager extends BaseComponent {
     input.onblur = finishRename;
     input.onkeydown = (e) => {
       if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-      if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+      if (e.key === 'Escape') { cancelled = true; input.blur(); }
     };
   }
 
@@ -1593,13 +1624,13 @@ class TerminalManager extends BaseComponent {
   // ── Create terminal ──
 
   async createTerminal(project, options = {}) {
-    const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, resumeSessionId = null, systemPrompt = null, tabTag = null } = options;
+    const { skipPermissions = false, runClaude = true, name: customName = null, nameLocked = false, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, resumeSessionId = null, systemPrompt = null, tabTag = null } = options;
 
     const mode = explicitMode || (runClaude ? (getSetting('defaultTerminalMode') || 'terminal') : 'terminal');
 
     if (mode === 'chat' && runClaude) {
       const chatProject = overrideCwd ? { ...project, path: overrideCwd } : project;
-      return this._createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, resumeSessionId, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart, systemPrompt, tabTag });
+      return this._createChatTerminal(chatProject, { skipPermissions, name: customName, nameLocked, parentProjectId: overrideCwd ? project.id : null, resumeSessionId, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart, systemPrompt, tabTag });
     }
 
     const result = await this._api.terminal.create({
@@ -1646,6 +1677,7 @@ class TerminalManager extends BaseComponent {
       project,
       projectIndex,
       name: tabName,
+      ...(nameLocked ? { nameLocked: true } : {}),
       status: initialStatus,
       inputBuffer: '',
       isBasic: isBasicTerminal,
@@ -1793,6 +1825,7 @@ class TerminalManager extends BaseComponent {
           cwd: overrideCwd || project.path,
           skipPermissions,
           name: customName,
+          nameLocked,
           mode: explicitMode,
           initialPrompt,
           initialImages,
@@ -1824,10 +1857,7 @@ class TerminalManager extends BaseComponent {
         if (self._scrapingEventCallback) self._scrapingEventCallback(id, 'input', {});
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          const title = extractTitleFromInput(td.inputBuffer);
-          if (title) {
-            self.updateTerminalTabName(id, title);
-          }
+          self._nameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -3040,8 +3070,7 @@ class TerminalManager extends BaseComponent {
         self.updateTerminalStatus(id, 'working');
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          const title = extractTitleFromInput(td.inputBuffer);
-          if (title) self.updateTerminalTabName(id, title);
+          self._nameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -3209,8 +3238,7 @@ class TerminalManager extends BaseComponent {
         self.updateTerminalStatus(id, 'working');
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          const title = extractTitleFromInput(td.inputBuffer);
-          if (title) self.updateTerminalTabName(id, title);
+          self._nameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -3920,10 +3948,9 @@ class TerminalManager extends BaseComponent {
   // ── Chat terminal ──
 
   async _createChatTerminal(project, options = {}) {
-    const { skipPermissions = false, name: customName = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, resumeDropsTurn = null, parentProjectId = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, systemPrompt = null, tabTag = null } = options;
+    const { skipPermissions = false, name: customName = null, nameLocked = false, resumeSessionId = null, forkSession = false, resumeSessionAt = null, resumeDropsTurn = null, parentProjectId = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, systemPrompt = null, tabTag = null } = options;
 
     const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    let _chatSessionId = null;
     const isCloud = !!project.isCloud;
     const projectIndex = isCloud ? -1 : getProjectIndex(parentProjectId || project.id);
     const tabName = customName || project.name;
@@ -3935,6 +3962,7 @@ class TerminalManager extends BaseComponent {
       project,
       projectIndex,
       name: tabName,
+      ...(nameLocked ? { nameLocked: true } : {}),
       status: 'ready',
       inputBuffer: '',
       isBasic: false,
@@ -3999,19 +4027,11 @@ class TerminalManager extends BaseComponent {
       builtinSystemPrompt: getBuiltinSystemPrompt(project.type),
       ...(systemPrompt ? { systemPrompt } : {}),
       onSessionStart: (sid) => {
-        _chatSessionId = sid;
         updateTerminal(id, { claudeSessionId: sid });
         if (onSessionStart) onSessionStart(sid);
       },
-      onTabRename: async (name) => {
-        const nameEl = tab.querySelector('.tab-name');
-        if (nameEl) nameEl.textContent = name;
-        const data = getTerminal(id);
-        if (data) data.name = name;
-        if (_chatSessionId && name) {
-          await self._setSessionCustomName(_chatSessionId, name);
-        }
-      },
+      onTabRename: (name) => self.updateTerminalTabName(id, name),
+      onRenameCommand: (name) => self.renameTabFromCommand(id, name),
       onStatusChange: (status, substatus) => self._updateChatTerminalStatus(id, status, substatus),
       onSwitchTerminal: (dir) => self._callbacks.onSwitchTerminal?.(dir),
       onSwitchProject: (dir) => self._callbacks.onSwitchProject?.(dir),
@@ -4089,6 +4109,7 @@ class TerminalManager extends BaseComponent {
         terminalId: id,
         skipPermissions: getSetting('skipPermissions') || false,
         builtinSystemPrompt: getBuiltinSystemPrompt(project.type),
+        onRenameCommand: (name) => self.renameTabFromCommand(id, name),
         onStatusChange: (status, substatus) => self._updateChatTerminalStatus(id, status, substatus),
         onSwitchTerminal: (dir) => self._callbacks.onSwitchTerminal?.(dir),
         onSwitchProject: (dir) => self._callbacks.onSwitchProject?.(dir),
@@ -4638,7 +4659,7 @@ module.exports = {
   writeApiConsole: (projectIndex, data) => _getInstance().writeApiConsole(projectIndex, data),
   switchTerminalMode: (id) => _getInstance().switchTerminalMode(id),
   setScrapingCallback: (cb) => _getInstance().setScrapingCallback(cb),
-  updateTerminalTabName: (id, name) => _getInstance().updateTerminalTabName(id, name),
+  updateTerminalTabName: (id, name, opts) => _getInstance().updateTerminalTabName(id, name, opts),
   cleanupProjectMaps: (projectIndex) => _getInstance().cleanupProjectMaps(projectIndex),
   scheduleScrollAfterRestore: (id) => _getInstance().scheduleScrollAfterRestore(id),
   // MCP orchestration
