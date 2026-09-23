@@ -578,6 +578,12 @@ class TerminalManager extends BaseComponent {
     return !!(td && td.name && td.name.startsWith('/'));
   }
 
+  _autoNameTabFromInput(id, input) {
+    if (getSetting('aiTabNaming') === false) return;
+    const title = extractTitleFromInput(input);
+    if (title) this.updateTerminalTabName(id, title);
+  }
+
   _scheduleReady(id) {
     if (this._readyDebounceTimers.has(id)) return;
     let delay = READY_DEBOUNCE_MS;
@@ -1824,10 +1830,7 @@ class TerminalManager extends BaseComponent {
         if (self._scrapingEventCallback) self._scrapingEventCallback(id, 'input', {});
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          const title = extractTitleFromInput(td.inputBuffer);
-          if (title) {
-            self.updateTerminalTabName(id, title);
-          }
+          self._autoNameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -3040,8 +3043,7 @@ class TerminalManager extends BaseComponent {
         self.updateTerminalStatus(id, 'working');
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          const title = extractTitleFromInput(td.inputBuffer);
-          if (title) self.updateTerminalTabName(id, title);
+          self._autoNameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
@@ -3209,8 +3211,7 @@ class TerminalManager extends BaseComponent {
         self.updateTerminalStatus(id, 'working');
         if (td && td.inputBuffer.trim().length > 0) {
           self._postEnterExtended.add(id);
-          const title = extractTitleFromInput(td.inputBuffer);
-          if (title) self.updateTerminalTabName(id, title);
+          self._autoNameTabFromInput(id, td.inputBuffer);
           updateTerminal(id, { inputBuffer: '' });
         }
       } else if (data === '\x7f' || data === '\b') {
