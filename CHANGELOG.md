@@ -2,6 +2,21 @@
 
 All notable changes to Claude Terminal are documented in this file.
 
+## [2.7.0] - 2026-09-23
+
+### Added
+- `/rename <name>` (or `/name`) now also names the tab and keeps that name.
+  It is Claude Code's own command to rename the conversation, so in terminal
+  tabs both change together; chat tabs handle it on their own and list it in
+  the slash menu. A bare `/rename` hands the tab back to automatic naming.
+- A tab you rename by hand keeps its name: Claude's title updates, the text
+  you type and AI naming no longer overwrite it, and the name survives a
+  restart. Clear the name field to let automatic naming take over again.
+
+### Fixed
+- Turning off *AI tab naming* now actually stops terminal tabs from being
+  renamed. Before, every prompt typed in a Claude CLI tab still renamed it.
+
 ## [2.6.0] - 2026-09-21
 
 ### Added

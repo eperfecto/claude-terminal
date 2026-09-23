@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-2.6.0-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.7.0-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
@@ -174,6 +174,7 @@ npm install
 - GPU-accelerated rendering via xterm.js + WebGL (DOM fallback)
 - Switch between terminal and chat mode per tab
 - Tab drag-and-drop reordering, renaming, desktop notifications
+- **Tab names stay put**: rename a tab (double-click or `/rename <name>`) and automatic naming leaves it alone, even across restarts; a bare `/rename` hands it back
 - Filter terminals by project
 - Adaptive ready detection with spinner status
 - Captured terminal output, so the terminal read tools and MCP tools can actually return what ran
