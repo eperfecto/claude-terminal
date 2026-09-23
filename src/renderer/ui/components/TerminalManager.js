@@ -1219,6 +1219,14 @@ class TerminalManager extends BaseComponent {
     TerminalSessionService.saveTerminalSessions();
   }
 
+  // Hands a tab the user named back to automatic naming.
+  unlockTabName(id) {
+    if (!getTerminal(id)?.nameLocked) return;
+    updateTerminal(id, { nameLocked: false });
+    const TerminalSessionService = require('../../services/TerminalSessionService');
+    TerminalSessionService.saveTerminalSessions();
+  }
+
   _dismissLoadingOverlay(id) {
     const wrapper = document.querySelector(`.terminal-wrapper[data-id="${id}"]`);
     const overlay = wrapper?.querySelector('.terminal-loading-overlay');
@@ -1319,20 +1327,25 @@ class TerminalManager extends BaseComponent {
     input.focus();
     input.select();
 
+    let cancelled = false;
+    // Confirming locks the name, even an unchanged one. An empty field hands
+    // the tab back to automatic naming, and Escape leaves everything as it is.
     const finishRename = () => {
-      const newName = input.value.trim() || currentName;
+      const newName = cancelled ? '' : input.value.trim();
+      if (newName) self.updateTerminalTabName(id, newName, { manual: true });
+      else if (!cancelled) self.unlockTabName(id);
       const newSpan = document.createElement('span');
       newSpan.className = 'tab-name';
-      newSpan.textContent = newName;
+      // Read the name back: an automatic rename may have landed while editing.
+      newSpan.textContent = getTerminal(id)?.name || currentName;
       newSpan.ondblclick = (e) => { e.stopPropagation(); self._startRenameTab(id); };
       input.replaceWith(newSpan);
-      if (newName !== currentName) self.updateTerminalTabName(id, newName, { manual: true });
     };
 
     input.onblur = finishRename;
     input.onkeydown = (e) => {
       if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-      if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+      if (e.key === 'Escape') { cancelled = true; input.blur(); }
     };
   }
 

@@ -75,6 +75,29 @@ describe('tab naming', () => {
     expect(getTerminal(ID).nameLocked).toBeFalsy();
   });
 
+  test('confirming the unchanged name from the tab input locks it', () => {
+    renameViaInput(manager, ID, 'my-project');
+    expect(getTerminal(ID).name).toBe('my-project');
+    expect(getTerminal(ID).nameLocked).toBe(true);
+  });
+
+  test('clearing the tab input hands the tab back to automatic naming', async () => {
+    await manager.updateTerminalTabName(ID, 'Mine', { manual: true });
+    renameViaInput(manager, ID, '   ');
+    expect(getTerminal(ID).nameLocked).toBe(false);
+    expect(document.querySelector('.tab-name').textContent).toBe('Mine');
+    await manager.updateTerminalTabName(ID, 'Fix Login Bug');
+    expect(getTerminal(ID).name).toBe('Fix Login Bug');
+  });
+
+  test('cancelling shows a name that changed while the input was open', async () => {
+    manager._startRenameTab(ID);
+    await manager.updateTerminalTabName(ID, 'Claude Title');
+    const input = document.querySelector('.tab-name-input');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.tab-name').textContent).toBe('Claude Title');
+  });
+
   describe('naming from typed terminal input', () => {
     test('renames the tab when AI tab naming is on', () => {
       manager._autoNameTabFromInput(ID, 'fix the login redirect bug');
