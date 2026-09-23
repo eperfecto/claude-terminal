@@ -98,6 +98,7 @@ async function saveTerminalSessionsImmediate() {
         mode: td.mode || 'terminal',
         claudeSessionId: td.claudeSessionId || null,
         name: td.name || null,
+        ...(td.nameLocked ? { nameLocked: true } : {}),
       };
 
       projectSessions[projectId].tabs.push(tab);

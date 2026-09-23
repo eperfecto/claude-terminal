@@ -243,6 +243,7 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
             skipPermissions: settingsState.get().skipPermissions,
             resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
             name: tab.name || null,
+            nameLocked: !!tab.nameLocked,
           });
         }
 

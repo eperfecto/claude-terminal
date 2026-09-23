@@ -1,6 +1,6 @@
 /**
- * Tab naming: the "AI tab naming" setting turns off every content-based
- * automatic rename.
+ * Tab naming: a name the user typed wins over every automatic source, and the
+ * "AI tab naming" setting turns off every content-based automatic rename.
  */
 
 jest.mock('@xterm/xterm', () => ({ Terminal: jest.fn() }));
@@ -19,6 +19,13 @@ function mountTab(id, name) {
   document.body.innerHTML = `<div class="terminal-tab" data-id="${id}"><span class="tab-name">${name}</span></div>`;
 }
 
+function renameViaInput(manager, id, value, key = 'Enter') {
+  manager._startRenameTab(id);
+  const input = document.querySelector('.tab-name-input');
+  input.value = value;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key }));
+}
+
 describe('tab naming', () => {
   let manager;
 
@@ -34,6 +41,40 @@ describe('tab naming', () => {
     removeTerminal(ID);
   });
 
+  test('an automatic rename updates an unlocked tab', async () => {
+    await manager.updateTerminalTabName(ID, 'Fix Login Bug');
+    expect(getTerminal(ID).name).toBe('Fix Login Bug');
+    expect(document.querySelector('.tab-name').textContent).toBe('Fix Login Bug');
+  });
+
+  test('a manual rename locks the tab against automatic renames', async () => {
+    await manager.updateTerminalTabName(ID, 'Mine', { manual: true });
+    await manager.updateTerminalTabName(ID, 'Fix Login Bug');
+    expect(getTerminal(ID).name).toBe('Mine');
+    expect(getTerminal(ID).nameLocked).toBe(true);
+    expect(document.querySelector('.tab-name').textContent).toBe('Mine');
+  });
+
+  test('a manual rename can still change a locked tab', async () => {
+    await manager.updateTerminalTabName(ID, 'Mine', { manual: true });
+    await manager.updateTerminalTabName(ID, 'Mine v2', { manual: true });
+    expect(getTerminal(ID).name).toBe('Mine v2');
+  });
+
+  test('renaming from the tab input locks the tab', async () => {
+    renameViaInput(manager, ID, 'Release prep');
+    await Promise.resolve();
+    expect(getTerminal(ID).name).toBe('Release prep');
+    expect(getTerminal(ID).nameLocked).toBe(true);
+    expect(document.querySelector('.tab-name').textContent).toBe('Release prep');
+  });
+
+  test('cancelling the tab input with Escape does not lock the tab', () => {
+    renameViaInput(manager, ID, 'Discarded', 'Escape');
+    expect(getTerminal(ID).name).toBe('my-project');
+    expect(getTerminal(ID).nameLocked).toBeFalsy();
+  });
+
   describe('naming from typed terminal input', () => {
     test('renames the tab when AI tab naming is on', () => {
       manager._autoNameTabFromInput(ID, 'fix the login redirect bug');
@@ -44,6 +85,12 @@ describe('tab naming', () => {
       setSetting('aiTabNaming', false);
       manager._autoNameTabFromInput(ID, 'fix the login redirect bug');
       expect(getTerminal(ID).name).toBe('my-project');
+    });
+
+    test('leaves a locked tab alone', async () => {
+      await manager.updateTerminalTabName(ID, 'Mine', { manual: true });
+      manager._autoNameTabFromInput(ID, 'fix the login redirect bug');
+      expect(getTerminal(ID).name).toBe('Mine');
     });
   });
 });
